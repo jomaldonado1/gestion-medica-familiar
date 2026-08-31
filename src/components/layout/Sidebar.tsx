@@ -15,13 +15,14 @@ import {
   QrCode,
   Plus,
   ChevronRight,
-  UserCheck
+  UserCheck,
+  LogOut
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { user, miembros, miembroActivo, setMiembroActivoId } = useApp();
+  const { user, cerrarSesion, miembros, miembroActivo, setMiembroActivoId } = useApp();
 
   if (pathname.startsWith('/emergencia/')) return null;
 
@@ -139,9 +140,9 @@ export function Sidebar() {
         )}
       </nav>
 
-      {/* User Footer Card */}
+      {/* User Footer Card & Logout */}
       {user && (
-        <div className="pt-4 border-t border-slate-100 mt-auto">
+        <div className="pt-4 border-t border-slate-100 mt-auto space-y-2">
           <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-200">
             <div className="truncate pr-2">
               <p className="text-xs font-bold text-slate-800 truncate">{user.nombre_completo}</p>
@@ -151,6 +152,14 @@ export function Sidebar() {
               {user.rol}
             </span>
           </div>
+
+          <button
+            onClick={cerrarSesion}
+            className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 border border-red-200 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Cerrar Sesión</span>
+          </button>
         </div>
       )}
     </aside>

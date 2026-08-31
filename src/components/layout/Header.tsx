@@ -13,14 +13,15 @@ import {
   UserCheck,
   X,
   PhoneCall,
-  Plus
+  Plus,
+  LogOut
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { QRCodeSVG } from 'qrcode.react';
 
 export function Header() {
   const pathname = usePathname();
-  const { miembros, miembroActivo, setMiembroActivoId, consultas } = useApp();
+  const { user, cerrarSesion, miembros, miembroActivo, setMiembroActivoId, consultas } = useApp();
   const [showQRModal, setShowQRModal] = useState(false);
   const [showMemberDropdown, setShowMemberDropdown] = useState(false);
 
@@ -133,7 +134,7 @@ export function Header() {
           )}
         </div>
 
-        {/* Action Buttons: Emergency QR Button & Notifications */}
+        {/* Action Buttons: Emergency QR Button & Logout */}
         <div className="flex items-center gap-2">
           {miembroActivo && (
             <button
@@ -143,6 +144,16 @@ export function Header() {
               <QrCode className="w-4 h-4" />
               <span className="hidden sm:inline">Generar QR SOS</span>
               <span className="sm:hidden">QR</span>
+            </button>
+          )}
+
+          {user && (
+            <button
+              onClick={cerrarSesion}
+              className="md:hidden flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs p-2 rounded-xl border border-slate-200"
+              title="Cerrar Sesión"
+            >
+              <LogOut className="w-4 h-4 text-red-600" />
             </button>
           )}
         </div>
