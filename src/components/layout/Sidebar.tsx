@@ -24,7 +24,15 @@ export function Sidebar() {
   const pathname = usePathname();
   const { user, cerrarSesion, miembros, miembroActivo, setMiembroActivoId } = useApp();
 
-  if (pathname.startsWith('/emergencia/')) return null;
+  if (
+    pathname === '/login' ||
+    pathname === '/register' ||
+    pathname === '/forgot-password' ||
+    pathname.startsWith('/emergencia/') ||
+    pathname.startsWith('/auth/')
+  ) {
+    return null;
+  }
 
   const mainNav = [
     { href: '/', label: 'Panel Principal', icon: Home },
@@ -56,28 +64,41 @@ export function Sidebar() {
             <Plus className="w-3 h-3" /> Nuevo
           </Link>
         </div>
-        <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-          {miembros.map((m) => {
-            const isSelected = miembroActivo?.id === m.id;
-            return (
-              <button
-                key={m.id}
-                onClick={() => setMiembroActivoId(m.id)}
-                className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs transition-all ${
-                  isSelected
-                    ? 'bg-sky-600 text-white font-bold shadow-sm'
-                    : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/60'
-                }`}
-              >
-                <div className="truncate pr-2">
-                  <p className="truncate font-semibold">{m.nombre}</p>
-                  <p className={`text-[10px] ${isSelected ? 'text-sky-100' : 'text-slate-500'}`}>{m.tipo}</p>
-                </div>
-                {isSelected && <UserCheck className="w-4 h-4 shrink-0" />}
-              </button>
-            );
-          })}
-        </div>
+        
+        {miembros.length === 0 ? (
+          <div className="p-3 bg-white rounded-xl border border-dashed border-slate-200 text-center">
+            <p className="text-xs font-semibold text-slate-500 mb-1.5">Sin integrantes</p>
+            <Link
+              href="/miembros"
+              className="inline-flex items-center gap-1 bg-sky-600 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg hover:bg-sky-700"
+            >
+              <Plus className="w-3 h-3" /> Crear integrante
+            </Link>
+          </div>
+        ) : (
+          <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+            {miembros.map((m) => {
+              const isSelected = miembroActivo?.id === m.id;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => setMiembroActivoId(m.id)}
+                  className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs transition-all ${
+                    isSelected
+                      ? 'bg-sky-600 text-white font-bold shadow-sm'
+                      : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200/60'
+                  }`}
+                >
+                  <div className="truncate pr-2">
+                    <p className="truncate font-semibold">{m.nombre}</p>
+                    <p className={`text-[10px] ${isSelected ? 'text-sky-100' : 'text-slate-500'}`}>{m.tipo}</p>
+                  </div>
+                  {isSelected && <UserCheck className="w-4 h-4 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Primary Navigation */}

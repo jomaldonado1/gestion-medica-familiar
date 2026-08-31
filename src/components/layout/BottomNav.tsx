@@ -9,8 +9,7 @@ import {
   Pill, 
   Calendar, 
   FileText, 
-  QrCode,
-  UserCheck
+  QrCode
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
@@ -18,8 +17,16 @@ export function BottomNav() {
   const pathname = usePathname();
   const { miembroActivo } = useApp();
 
-  // Ocultar en vistas públicas de emergencia
-  if (pathname.startsWith('/emergencia/')) return null;
+  // Ocultar en vistas aisladas (Auth y Emergencia)
+  if (
+    pathname === '/login' ||
+    pathname === '/register' ||
+    pathname === '/forgot-password' ||
+    pathname.startsWith('/emergencia/') ||
+    pathname.startsWith('/auth/')
+  ) {
+    return null;
+  }
 
   const navItems = [
     { href: '/', label: 'Inicio', icon: Home },

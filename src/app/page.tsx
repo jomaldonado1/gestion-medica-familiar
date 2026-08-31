@@ -14,9 +14,7 @@ import {
   AlertTriangle, 
   Clock, 
   PhoneCall,
-  UserCheck,
-  ChevronRight,
-  ShieldCheck
+  ChevronRight
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 
@@ -32,17 +30,19 @@ export default function DashboardPage() {
 
   if (!miembroActivo) {
     return (
-      <div className="text-center py-16 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
-        <HeartPulse className="w-16 h-16 text-sky-500 mx-auto mb-4 animate-bounce" />
-        <h2 className="text-xl font-bold text-slate-800">No hay integrantes registrados</h2>
-        <p className="text-sm text-slate-500 mb-6 max-w-md mx-auto">
-          Comienza agregando a tu primer familiar, padre, hijo o mascota para llevar su historial médico integral.
+      <div className="text-center py-16 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm max-w-xl mx-auto my-8">
+        <div className="p-4 bg-sky-50 text-sky-600 rounded-3xl inline-block mb-4 shadow-sm">
+          <HeartPulse className="w-16 h-16 stroke-[2.5]" />
+        </div>
+        <h2 className="text-2xl font-black text-slate-900 mb-2">¡Bienvenido a MedFamiliar!</h2>
+        <p className="text-sm text-slate-600 mb-6 max-w-md mx-auto leading-relaxed">
+          Tu cuenta está lista. Comienza agregando a tu primer integrante familiar (padre/adulto mayor, tú mismo, hijo o mascota) para llevar su historial médico y generar su Ficha de Emergencia SOS.
         </p>
         <Link
           href="/miembros"
-          className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm px-6 py-3 rounded-2xl shadow-md transition-all"
+          className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-700 active:scale-95 text-white font-bold text-sm px-6 py-3.5 rounded-2xl shadow-lg transition-all"
         >
-          <Plus className="w-5 h-5" /> Agregar primer integrante
+          <Plus className="w-5 h-5" /> Crear tu primer integrante familiar (+ Nuevo)
         </Link>
       </div>
     );

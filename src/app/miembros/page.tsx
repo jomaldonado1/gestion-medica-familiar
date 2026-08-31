@@ -105,7 +105,22 @@ export default function MiembrosPage() {
       </div>
 
       {/* REJILLA DE MIEMBROS */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+      {miembros.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-3xl border border-slate-200 p-8 shadow-sm">
+          <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+          <h2 className="text-base font-bold text-slate-800">No tienes integrantes registrados</h2>
+          <p className="text-xs text-slate-500 mb-4">
+            Comienza agregando a tu primer familiar, padre, hijo o mascota para llevar su historial médico.
+          </p>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center gap-2 bg-sky-600 text-white font-bold text-xs px-5 py-3 rounded-2xl hover:bg-sky-700 shadow-md"
+          >
+            <Plus className="w-4 h-4" /> Registrar Integrante (+ Nuevo)
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {miembros.map((m) => (
           <div
             key={m.id}
@@ -174,6 +189,7 @@ export default function MiembrosPage() {
           </div>
         ))}
       </div>
+      )}
 
       {/* MODAL CREAR INTEGRANTE */}
       {showAddModal && (

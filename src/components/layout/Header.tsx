@@ -7,7 +7,6 @@ import {
   HeartPulse, 
   Users, 
   QrCode, 
-  Bell, 
   AlertCircle, 
   ChevronDown,
   UserCheck,
@@ -25,7 +24,16 @@ export function Header() {
   const [showQRModal, setShowQRModal] = useState(false);
   const [showMemberDropdown, setShowMemberDropdown] = useState(false);
 
-  if (pathname.startsWith('/emergencia/')) return null;
+  // Ocultar en vistas aisladas
+  if (
+    pathname === '/login' ||
+    pathname === '/register' ||
+    pathname === '/forgot-password' ||
+    pathname.startsWith('/emergencia/') ||
+    pathname.startsWith('/auth/')
+  ) {
+    return null;
+  }
 
   // Filtrar consultas próximas en los siguientes 7 días
   const proximasConsultas = consultas.filter(c => {
@@ -66,27 +74,36 @@ export function Header() {
         {/* Desktop Active Member Indicator */}
         <div className="hidden md:flex items-center gap-2">
           <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Integrante:</span>
-          <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200">
-            {miembros.map((m) => {
-              const isSelected = miembroActivo?.id === m.id;
-              return (
-                <button
-                  key={m.id}
-                  onClick={() => setMiembroActivoId(m.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                    isSelected
-                      ? 'bg-sky-600 text-white shadow-sm'
-                      : 'text-slate-600 hover:bg-slate-200/70'
-                  }`}
-                >
-                  <span>{m.nombre}</span>
-                  <span className={`text-[10px] font-normal opacity-80 ${isSelected ? 'text-sky-100' : 'text-slate-500'}`}>
-                    ({m.tipo})
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          {miembros.length === 0 ? (
+            <Link
+              href="/miembros"
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-sky-50 text-sky-700 hover:bg-sky-100 flex items-center gap-1 border border-sky-200"
+            >
+              <Plus className="w-3.5 h-3.5" /> Agregar primer integrante
+            </Link>
+          ) : (
+            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200">
+              {miembros.map((m) => {
+                const isSelected = miembroActivo?.id === m.id;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => setMiembroActivoId(m.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      isSelected
+                        ? 'bg-sky-600 text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-200/70'
+                    }`}
+                  >
+                    <span>{m.nombre}</span>
+                    <span className={`text-[10px] font-normal opacity-80 ${isSelected ? 'text-sky-100' : 'text-slate-500'}`}>
+                      ({m.tipo})
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Mobile Member Switcher Dropdown */}
@@ -96,31 +113,35 @@ export function Header() {
             className="flex items-center gap-2 bg-sky-50 text-sky-800 border border-sky-200 px-3 py-1.5 rounded-xl text-xs font-bold"
           >
             <Users className="w-4 h-4 text-sky-600" />
-            <span className="max-w-[120px] truncate">{miembroActivo?.nombre || 'Seleccionar'}</span>
+            <span className="max-w-[120px] truncate">{miembroActivo?.nombre || 'Sin integrantes'}</span>
             <ChevronDown className="w-3.5 h-3.5 text-sky-600" />
           </button>
 
           {showMemberDropdown && (
             <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl py-2 z-50">
               <p className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase">Cambiar integrante</p>
-              {miembros.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => {
-                    setMiembroActivoId(m.id);
-                    setShowMemberDropdown(false);
-                  }}
-                  className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between ${
-                    miembroActivo?.id === m.id ? 'bg-sky-50 text-sky-700 font-bold' : 'hover:bg-slate-50 text-slate-700'
-                  }`}
-                >
-                  <div>
-                    <p className="font-semibold">{m.nombre}</p>
-                    <p className="text-[10px] text-slate-500">{m.tipo}</p>
-                  </div>
-                  {miembroActivo?.id === m.id && <UserCheck className="w-4 h-4 text-sky-600" />}
-                </button>
-              ))}
+              {miembros.length === 0 ? (
+                <p className="px-3 py-2 text-xs text-slate-500 italic">No hay integrantes creados.</p>
+              ) : (
+                miembros.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setMiembroActivoId(m.id);
+                      setShowMemberDropdown(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between ${
+                      miembroActivo?.id === m.id ? 'bg-sky-50 text-sky-700 font-bold' : 'hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div>
+                      <p className="font-semibold">{m.nombre}</p>
+                      <p className="text-[10px] text-slate-500">{m.tipo}</p>
+                    </div>
+                    {miembroActivo?.id === m.id && <UserCheck className="w-4 h-4 text-sky-600" />}
+                  </button>
+                ))
+              )}
               <div className="border-t border-slate-100 mt-1 pt-1 px-2">
                 <Link
                   href="/miembros"
@@ -179,7 +200,6 @@ export function Header() {
                 Escanea para acceder a alergias y datos de urgencia de <strong>{miembroActivo.nombre}</strong>.
               </p>
 
-              {/* QR Container */}
               <div className="bg-slate-50 border-2 border-red-200 p-4 rounded-2xl inline-block mb-4 shadow-inner">
                 <QRCodeSVG
                   value={`${typeof window !== 'undefined' ? window.location.origin : ''}/emergencia/${miembroActivo.qr_code_token}`}
