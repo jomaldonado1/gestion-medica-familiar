@@ -84,6 +84,21 @@ CREATE TABLE IF NOT EXISTS public.miembro_tutores (
 CREATE INDEX IF NOT EXISTS idx_miembro_tutores_user ON public.miembro_tutores(user_id);
 CREATE INDEX IF NOT EXISTS idx_miembro_tutores_miembro ON public.miembro_tutores(miembro_id);
 
+-- TRIGGER AUTOMÁTICO: Vincular tutor propietario al crear un miembro
+CREATE OR REPLACE FUNCTION public.handle_new_miembro()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.miembro_tutores (miembro_id, user_id, rol)
+    VALUES (NEW.id, NEW.creado_por, 'propietario')
+    ON CONFLICT (miembro_id, user_id) DO NOTHING;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE TRIGGER on_miembro_created
+    AFTER INSERT ON public.miembros
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_miembro();
+
 
 -- 4. TABLA: MEDICOS (Directorio de Profesionales y Veterinarios)
 CREATE TABLE IF NOT EXISTS public.medicos (
@@ -141,7 +156,7 @@ CREATE TABLE IF NOT EXISTS public.estudios (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     miembro_id UUID NOT NULL REFERENCES public.miembros(id) ON DELETE CASCADE,
     titulo TEXT NOT NULL,
-    tipo_estudio TEXT NOT NULL, -- Ej: 'Análisis de Sangre', 'Radiografía', 'Ecografía', 'Informe'
+    tipo_estudio TEXT NOT NULL,
     fecha DATE NOT NULL DEFAULT CURRENT_DATE,
     archivo_url TEXT,
     archivo_nombre TEXT,
@@ -156,7 +171,6 @@ CREATE INDEX IF NOT EXISTS idx_estudios_miembro ON public.estudios(miembro_id);
 -- FUNCIONES REUTILIZABLES PARA SEGURIDAD (RLS)
 -- ====================================================================
 
--- Función helper para verificar si un usuario es tutor autorizado de un miembro
 CREATE OR REPLACE FUNCTION public.is_tutor_of(_miembro_id UUID, _required_roles TEXT[] DEFAULT ARRAY['propietario', 'editor', 'lector'])
 RETURNS BOOLEAN AS $$
 BEGIN
@@ -166,6 +180,11 @@ BEGIN
         WHERE miembro_id = _miembro_id 
           AND user_id = auth.uid() 
           AND rol = ANY(_required_roles)
+    ) OR EXISTS (
+        SELECT 1 
+        FROM public.miembros 
+        WHERE id = _miembro_id 
+          AND creado_por = auth.uid()
     );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -184,60 +203,72 @@ ALTER TABLE public.consultas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.estudios ENABLE ROW LEVEL SECURITY;
 
 -- 1. POLÍTICAS PARA PROFILES
+DROP POLICY IF EXISTS "Los usuarios pueden ver su propio perfil" ON public.profiles;
 CREATE POLICY "Los usuarios pueden ver su propio perfil" 
     ON public.profiles FOR SELECT USING (auth.uid() = id OR rol = 'admin');
 
+DROP POLICY IF EXISTS "Los usuarios pueden actualizar su propio perfil" ON public.profiles;
 CREATE POLICY "Los usuarios pueden actualizar su propio perfil" 
     ON public.profiles FOR UPDATE USING (auth.uid() = id);
 
 -- 2. POLÍTICAS PARA MIEMBROS
+DROP POLICY IF EXISTS "Tutores pueden ver sus miembros" ON public.miembros;
 CREATE POLICY "Tutores pueden ver sus miembros" 
     ON public.miembros FOR SELECT 
-    USING (public.is_tutor_of(id) OR auth.jwt()->>'role' = 'service_role');
+    USING (creado_por = auth.uid() OR public.is_tutor_of(id) OR auth.jwt()->>'role' = 'service_role');
 
--- Lectura pública solo para la Ficha Rápida de Emergencia por token
+DROP POLICY IF EXISTS "Acceso público por QR token" ON public.miembros;
 CREATE POLICY "Acceso público por QR token" 
     ON public.miembros FOR SELECT 
     USING (true);
 
+DROP POLICY IF EXISTS "Usuarios autenticados pueden crear miembros" ON public.miembros;
 CREATE POLICY "Usuarios autenticados pueden crear miembros" 
     ON public.miembros FOR INSERT 
     WITH CHECK (auth.uid() = creado_por);
 
+DROP POLICY IF EXISTS "Propietarios y Editores pueden actualizar miembros" ON public.miembros;
 CREATE POLICY "Propietarios y Editores pueden actualizar miembros" 
     ON public.miembros FOR UPDATE 
-    USING (public.is_tutor_of(id, ARRAY['propietario', 'editor']));
+    USING (creado_por = auth.uid() OR public.is_tutor_of(id, ARRAY['propietario', 'editor']));
 
+DROP POLICY IF EXISTS "Solo Propietarios pueden eliminar miembros" ON public.miembros;
 CREATE POLICY "Solo Propietarios pueden eliminar miembros" 
     ON public.miembros FOR DELETE 
-    USING (public.is_tutor_of(id, ARRAY['propietario']));
+    USING (creado_por = auth.uid() OR public.is_tutor_of(id, ARRAY['propietario']));
 
 
 -- 3. POLÍTICAS PARA MIEMBRO_TUTORES
+DROP POLICY IF EXISTS "Ver relaciones de tutores" ON public.miembro_tutores;
 CREATE POLICY "Ver relaciones de tutores" 
     ON public.miembro_tutores FOR SELECT 
     USING (user_id = auth.uid() OR public.is_tutor_of(miembro_id));
 
+DROP POLICY IF EXISTS "Propietarios pueden invitar o modificar tutores" ON public.miembro_tutores;
 CREATE POLICY "Propietarios pueden invitar o modificar tutores" 
     ON public.miembro_tutores FOR ALL 
-    USING (public.is_tutor_of(miembro_id, ARRAY['propietario']));
+    USING (user_id = auth.uid() OR public.is_tutor_of(miembro_id, ARRAY['propietario']));
 
 
 -- 4. POLÍTICAS PARA MEDICOS, MEDICAMENTOS, CONSULTAS Y ESTUDIOS
--- Médicos
+DROP POLICY IF EXISTS "Tutores pueden ver medicos" ON public.medicos;
 CREATE POLICY "Tutores pueden ver medicos" ON public.medicos FOR SELECT USING (public.is_tutor_of(miembro_id));
+DROP POLICY IF EXISTS "Editores pueden gestionar medicos" ON public.medicos;
 CREATE POLICY "Editores pueden gestionar medicos" ON public.medicos FOR ALL USING (public.is_tutor_of(miembro_id, ARRAY['propietario', 'editor']));
 
--- Medicamentos
+DROP POLICY IF EXISTS "Tutores pueden ver medicamentos" ON public.medicamentos;
 CREATE POLICY "Tutores pueden ver medicamentos" ON public.medicamentos FOR SELECT USING (public.is_tutor_of(miembro_id));
+DROP POLICY IF EXISTS "Editores pueden gestionar medicamentos" ON public.medicamentos;
 CREATE POLICY "Editores pueden gestionar medicamentos" ON public.medicamentos FOR ALL USING (public.is_tutor_of(miembro_id, ARRAY['propietario', 'editor']));
 
--- Consultas
+DROP POLICY IF EXISTS "Tutores pueden ver consultas" ON public.consultas;
 CREATE POLICY "Tutores pueden ver consultas" ON public.consultas FOR SELECT USING (public.is_tutor_of(miembro_id));
+DROP POLICY IF EXISTS "Editores pueden gestionar consultas" ON public.consultas;
 CREATE POLICY "Editores pueden gestionar consultas" ON public.consultas FOR ALL USING (public.is_tutor_of(miembro_id, ARRAY['propietario', 'editor']));
 
--- Estudios
+DROP POLICY IF EXISTS "Tutores pueden ver estudios" ON public.estudios;
 CREATE POLICY "Tutores pueden ver estudios" ON public.estudios FOR SELECT USING (public.is_tutor_of(miembro_id));
+DROP POLICY IF EXISTS "Editores pueden gestionar estudios" ON public.estudios;
 CREATE POLICY "Editores pueden gestionar estudios" ON public.estudios FOR ALL USING (public.is_tutor_of(miembro_id, ARRAY['propietario', 'editor']));
 
 -- ====================================================================
@@ -247,10 +278,12 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('estudios-medicos', 'estudios-medicos', true)
 ON CONFLICT (id) DO NOTHING;
 
+DROP POLICY IF EXISTS "Usuarios autenticados pueden subir estudios" ON storage.objects;
 CREATE POLICY "Usuarios autenticados pueden subir estudios" 
     ON storage.objects FOR INSERT 
     WITH CHECK (bucket_id = 'estudios-medicos' AND auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Cualquier tutor autenticado puede leer estudios" ON storage.objects;
 CREATE POLICY "Cualquier tutor autenticado puede leer estudios" 
     ON storage.objects FOR SELECT 
     USING (bucket_id = 'estudios-medicos');

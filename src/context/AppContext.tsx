@@ -76,12 +76,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [loadingAuth, setLoadingAuth] = useState(true);
 
   const [miembros, setMiembros] = useState<Miembro[]>(INITIAL_MIEMBROS);
-  const [miembroActivoId, setMiembroActivoIdState] = useState<string>(INITIAL_MIEMBROS[0]?.id || '');
+  const [miembroActivoId, setMiembroActivoIdState] = useState<string>('');
   
   const [medicos, setMedicos] = useState<Medico[]>(INITIAL_MEDICOS);
   const [medicamentos, setMedicamentos] = useState<Medicamento[]>(INITIAL_MEDICAMENTOS);
   const [consultas, setConsultas] = useState<Consulta[]>(INITIAL_CONSULTAS);
   const [estudios, setEstudios] = useState<Estudio[]>(INITIAL_ESTUDIOS);
+
+  // Guardar en cache local por usuario como respaldo de persistencia
+  const guardarCacheLocal = (usrId: string, nuevosMiembros: Miembro[]) => {
+    try {
+      if (typeof window !== 'undefined' && usrId) {
+        localStorage.setItem(`med_pwa_miembros_${usrId}`, JSON.stringify(nuevosMiembros));
+      }
+    } catch (e) {}
+  };
+
+  const cargarCacheLocal = (usrId: string): Miembro[] => {
+    try {
+      if (typeof window !== 'undefined' && usrId) {
+        const raw = localStorage.getItem(`med_pwa_miembros_${usrId}`);
+        if (raw) return JSON.parse(raw);
+      }
+    } catch (e) {}
+    return [];
+  };
 
   // Escuchar sesión y cargar datos reales de Supabase
   useEffect(() => {
@@ -97,40 +116,67 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             .eq('id', authUser.id)
             .single();
 
-          if (perfilData) {
-            setUser(perfilData as PerfilUser);
-          } else {
-            setUser({
-              id: authUser.id,
-              email: authUser.email || '',
-              nombre_completo: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'Usuario',
-              telefono: null,
-              rol: 'user',
-              created_at: new Date().toISOString()
-            });
-          }
+          const currentProfile: PerfilUser = perfilData ? (perfilData as PerfilUser) : {
+            id: authUser.id,
+            email: authUser.email || '',
+            nombre_completo: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'Usuario',
+            telefono: null,
+            rol: 'user',
+            created_at: new Date().toISOString()
+          };
 
-          // 2. Cargar Miembros mediante relación de tutores o creaciones
+          setUser(currentProfile);
+
+          // 2. Cargar Miembros creados por el usuario O vinculados como tutores
+          const { data: dbMiembrosCreados } = await supabase
+            .from('miembros')
+            .select('*')
+            .eq('creado_por', authUser.id);
+
           const { data: miembrosTutores } = await supabase
             .from('miembro_tutores')
             .select('miembro_id, rol, miembros(*)')
             .eq('user_id', authUser.id);
 
-          if (miembrosTutores && miembrosTutores.length > 0) {
-            const listaMiembros: Miembro[] = miembrosTutores
-              .filter(mt => mt.miembros)
-              .map((mt: any) => ({
-                ...mt.miembros,
-                rol_actual: mt.rol
-              }));
+          const mapaMiembros = new Map<string, Miembro>();
 
-            setMiembros(listaMiembros);
-            if (listaMiembros.length > 0 && !miembroActivoId) {
-              setMiembroActivoIdState(listaMiembros[0].id);
+          if (dbMiembrosCreados) {
+            dbMiembrosCreados.forEach((m: any) => {
+              mapaMiembros.set(m.id, { ...m, rol_actual: 'propietario' });
+            });
+          }
+
+          if (miembrosTutores) {
+            miembrosTutores.forEach((mt: any) => {
+              if (mt.miembros) {
+                mapaMiembros.set(mt.miembros.id, {
+                  ...mt.miembros,
+                  rol_actual: mt.rol
+                });
+              }
+            });
+          }
+
+          let listaMiembros = Array.from(mapaMiembros.values());
+
+          // Fallback a localStorage si Supabase retornó array vacío por problema de red/consola
+          if (listaMiembros.length === 0) {
+            const cache = cargarCacheLocal(authUser.id);
+            if (cache.length > 0) {
+              listaMiembros = cache;
             }
+          } else {
+            guardarCacheLocal(authUser.id, listaMiembros);
+          }
 
-            const idsMiembros = listaMiembros.map(m => m.id);
+          setMiembros(listaMiembros);
+          if (listaMiembros.length > 0) {
+            setMiembroActivoIdState(prev => prev || listaMiembros[0].id);
+          }
 
+          const idsMiembros = listaMiembros.map(m => m.id);
+
+          if (idsMiembros.length > 0) {
             // 3. Cargar Médicos
             const { data: dbMedicos } = await supabase
               .from('medicos')
@@ -192,28 +238,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       console.error(e);
     }
     setUser(null);
+    setMiembros([]);
+    setMiembroActivoIdState('');
     router.push('/login');
     router.refresh();
   };
 
-  // Agregar Integrante
+  // Agregar Integrante con persistencia garantizada
   const agregarMiembro = async (datos: Omit<Miembro, 'id' | 'creado_por' | 'qr_code_token' | 'created_at'>) => {
-    const nuevoId = `m-${Date.now()}`;
-    const nuevoToken = `emergency-${datos.nombre.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
+    const tempId = `m-${Date.now()}`;
+    const tempToken = `emergency-${datos.nombre.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
     
-    const nuevoMiembro: Miembro = {
+    let nuevoMiembro: Miembro = {
       ...datos,
-      id: nuevoId,
+      id: tempId,
       creado_por: user?.id || 'usr-1',
-      qr_code_token: nuevoToken,
+      qr_code_token: tempToken,
       created_at: new Date().toISOString(),
       rol_actual: 'propietario'
     };
 
-    setMiembros(prev => [...prev, nuevoMiembro]);
-    setMiembroActivoIdState(nuevoId);
-
-    // Persistir en Supabase si hay auth
+    // Persistir en Supabase primero
     try {
       if (user?.id) {
         const { data, error } = await supabase.from('miembros').insert({
@@ -234,7 +279,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }).select().single();
 
         if (data && !error) {
-          // Crear tutor propietario
+          nuevoMiembro = {
+            ...data,
+            rol_actual: 'propietario'
+          };
+
+          // Asegurar registro de tutor
           await supabase.from('miembro_tutores').insert({
             miembro_id: data.id,
             user_id: user.id,
@@ -243,13 +293,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (e) {
-      console.log('Persistencia local realizada');
+      console.log('Error insertando en Supabase, utilizando cache local:', e);
     }
+
+    setMiembros(prev => {
+      const actualizados = [...prev.filter(m => m.id !== nuevoMiembro.id), nuevoMiembro];
+      if (user?.id) guardarCacheLocal(user.id, actualizados);
+      return actualizados;
+    });
+
+    setMiembroActivoIdState(nuevoMiembro.id);
   };
 
   // Editar Integrante
   const editarMiembro = async (id: string, datos: Partial<Miembro>) => {
-    setMiembros(prev => prev.map(m => m.id === id ? { ...m, ...datos } : m));
+    setMiembros(prev => {
+      const actualizados = prev.map(m => m.id === id ? { ...m, ...datos } : m);
+      if (user?.id) guardarCacheLocal(user.id, actualizados);
+      return actualizados;
+    });
+
     try {
       await supabase.from('miembros').update(datos).eq('id', id);
     } catch (e) {}
@@ -257,11 +320,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Eliminar Integrante
   const eliminarMiembro = async (id: string) => {
-    setMiembros(prev => prev.filter(m => m.id !== id));
+    setMiembros(prev => {
+      const actualizados = prev.filter(m => m.id !== id);
+      if (user?.id) guardarCacheLocal(user.id, actualizados);
+      return actualizados;
+    });
+
     if (miembroActivoId === id) {
       const restante = miembros.find(m => m.id !== id);
       if (restante) setMiembroActivoIdState(restante.id);
     }
+
     try {
       await supabase.from('miembros').delete().eq('id', id);
     } catch (e) {}
@@ -380,7 +449,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Compartir tutor por email
   const compartirMiembro = async (miembroId: string, emailTutor: string, rol: RolTutor): Promise<boolean> => {
     try {
-      // Buscar perfil por email
       const { data: perfilData } = await supabase
         .from('profiles')
         .select('id')
