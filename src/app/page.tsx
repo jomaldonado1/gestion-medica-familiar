@@ -81,10 +81,18 @@ export default function DashboardPage() {
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">{miembroActivo.nombre}</h1>
             <p className="text-xs sm:text-sm text-sky-100 opacity-90 mt-1">
-              {miembroActivo.fecha_nacimiento && `Fecha Nac: ${miembroActivo.fecha_nacimiento}`} 
+              {miembroActivo.dni && `DNI: ${miembroActivo.dni}`}
+              {miembroActivo.fecha_nacimiento && ` • Nac: ${miembroActivo.fecha_nacimiento}`} 
               {miembroActivo.grupo_sanguineo && ` • Grupo: ${miembroActivo.grupo_sanguineo}`}
               {miembroActivo.especie_raza && ` • Especie/Raza: ${miembroActivo.especie_raza}`}
             </p>
+
+            {(miembroActivo.obra_social || miembroActivo.nro_afiliado) && (
+              <p className="text-xs font-bold text-teal-200 bg-sky-900/60 backdrop-blur-sm border border-sky-300/30 px-3 py-1 rounded-xl mt-2 inline-block">
+                🏥 Cobertura: {miembroActivo.obra_social || 'Obra Social'} {miembroActivo.plan_obra_social ? `(${miembroActivo.plan_obra_social})` : ''}
+                {miembroActivo.nro_afiliado && ` • Afiliado Nº: ${miembroActivo.nro_afiliado}`}
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-2 w-full sm:w-auto">

@@ -44,6 +44,10 @@ CREATE TABLE IF NOT EXISTS public.miembros (
     creado_por UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
     tipo TEXT NOT NULL CHECK (tipo IN ('Adulto Mayor / Padre', 'Yo / Adulto', 'Hijo / Menor', 'Mascota')),
     nombre TEXT NOT NULL,
+    dni TEXT,
+    obra_social TEXT,
+    nro_afiliado TEXT,
+    plan_obra_social TEXT,
     fecha_nacimiento DATE,
     grupo_sanguineo TEXT, -- Ej: 'A+', 'O-', 'B+', o N/A para mascotas
     especie_raza TEXT,    -- Para mascotas (Ej: 'Perro / Caniche')
@@ -56,6 +60,12 @@ CREATE TABLE IF NOT EXISTS public.miembros (
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+
+-- Alter table migrations para bases de datos existentes
+ALTER TABLE public.miembros ADD COLUMN IF NOT EXISTS dni TEXT;
+ALTER TABLE public.miembros ADD COLUMN IF NOT EXISTS obra_social TEXT;
+ALTER TABLE public.miembros ADD COLUMN IF NOT EXISTS nro_afiliado TEXT;
+ALTER TABLE public.miembros ADD COLUMN IF NOT EXISTS plan_obra_social TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_miembros_qr_token ON public.miembros(qr_code_token);
 CREATE INDEX IF NOT EXISTS idx_miembros_creado_por ON public.miembros(creado_por);

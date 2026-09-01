@@ -74,10 +74,17 @@ export default function FichaEmergenciaPublicaPage({ params }: { params: { token
           <div className="bg-red-950/50 p-4 rounded-2xl border border-red-400/40 space-y-1">
             <h2 className="text-xl sm:text-2xl font-black text-white">{miembro.nombre}</h2>
             <p className="text-xs sm:text-sm font-bold text-red-100">
+              {miembro.dni && `DNI: ${miembro.dni} • `}
               Tipo: {miembro.tipo} 
               {miembro.fecha_nacimiento && ` • Fecha Nac: ${miembro.fecha_nacimiento}`}
               {miembro.especie_raza && ` • Especie/Raza: ${miembro.especie_raza}`}
             </p>
+            {(miembro.obra_social || miembro.nro_afiliado) && (
+              <p className="text-xs font-bold text-teal-200 bg-red-900/60 p-2 rounded-xl border border-red-400/30 mt-2">
+                🏥 Cobertura: {miembro.obra_social || 'Obra Social'} {miembro.plan_obra_social ? `(${miembro.plan_obra_social})` : ''}
+                {miembro.nro_afiliado && ` • N° Afiliado: ${miembro.nro_afiliado}`}
+              </p>
+            )}
           </div>
         </div>
 
