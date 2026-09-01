@@ -182,40 +182,42 @@ export function Header() {
 
       {/* MODAL DE CÓDIGO QR DE EMERGENCIA */}
       {showQRModal && miembroActivo && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl relative animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl relative my-auto max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
             <button
               onClick={() => setShowQRModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1 rounded-full bg-slate-100"
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1 rounded-full bg-slate-100 z-10"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="text-center">
-              <div className="inline-flex p-3 bg-red-100 text-red-600 rounded-2xl mb-3">
-                <QrCode className="w-8 h-8" />
+            <div className="text-center pt-2">
+              <div className="inline-flex p-2.5 bg-red-100 text-red-600 rounded-2xl mb-2">
+                <QrCode className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900">Ficha Rápida SOS</h3>
-              <p className="text-xs text-slate-500 mb-4">
+              <h3 className="text-base font-bold text-slate-900">Ficha Rápida SOS</h3>
+              <p className="text-[11px] text-slate-500 mb-3">
                 Escanea para acceder a alergias y datos de urgencia de <strong>{miembroActivo.nombre}</strong>.
               </p>
 
-              <div className="bg-slate-50 border-2 border-red-200 p-4 rounded-2xl inline-block mb-4 shadow-inner">
+              <div className="bg-slate-50 border-2 border-red-200 p-3 rounded-2xl inline-block mb-3 shadow-inner">
                 <QRCodeSVG
                   value={`${typeof window !== 'undefined' ? window.location.origin : ''}/emergencia/${miembroActivo.qr_code_token}`}
-                  size={180}
+                  size={150}
                   level="H"
                   includeMargin={true}
                 />
               </div>
 
-              <div className="bg-red-50 border border-red-200 p-3 rounded-xl text-left text-xs text-red-900 mb-4 space-y-1">
+              <div className="bg-red-50 border border-red-200 p-2.5 rounded-xl text-left text-[11px] text-red-900 mb-3 space-y-1">
                 <p><strong>Grupo Sanguíneo:</strong> {miembroActivo.grupo_sanguineo || 'N/A'}</p>
                 <p><strong>Alergias:</strong> {miembroActivo.alergias || 'Ninguna registrada'}</p>
-                <p className="flex items-center gap-1 font-bold text-red-700 pt-1">
-                  <PhoneCall className="w-3.5 h-3.5" />
-                  Contacto: {miembroActivo.contacto_emergencia_nombre} ({miembroActivo.contacto_emergencia_telefono})
-                </p>
+                {miembroActivo.contacto_emergencia_telefono && (
+                  <p className="flex items-center gap-1 font-bold text-red-700 pt-0.5">
+                    <PhoneCall className="w-3.5 h-3.5" />
+                    Contacto: {miembroActivo.contacto_emergencia_nombre} ({miembroActivo.contacto_emergencia_telefono})
+                  </p>
+                )}
               </div>
 
               <div className="flex gap-2">
