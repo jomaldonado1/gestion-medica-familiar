@@ -191,42 +191,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             }
           }
 
-          // 3. Sincronizar items de la caché local que faltan en Supabase (ej: LANA)
-          const cacheLocalMiembros = cargarCacheModulo<Miembro>(authUser.id, 'miembros');
-          if (cacheLocalMiembros && cacheLocalMiembros.length > 0) {
-            for (const cM of cacheLocalMiembros) {
-              const claveCache = cM.nombre.toLowerCase().trim();
-              const existeEnDb = Array.from(mapaMiembrosDb.values()).some(dbM => dbM.nombre.toLowerCase().trim() === claveCache);
+          // 3. Auto-restaurar LANA (Mascota) si no existía en Supabase
+          const tieneLana = Array.from(mapaMiembrosDb.values()).some(m => m.nombre.toLowerCase().trim().includes('lana'));
+          if (!tieneLana && authUser.id) {
+            const { data: insertedLana } = await supabase.from('miembros').insert({
+              tipo: 'Mascota',
+              nombre: 'LANA',
+              especie_raza: 'Mascota Familiar',
+              creado_por: authUser.id
+            }).select().single();
 
-              if (!existeEnDb) {
-                const { data: inserted } = await supabase.from('miembros').insert({
-                  tipo: cM.tipo,
-                  nombre: cM.nombre,
-                  telefono: cM.telefono || null,
-                  dni: cM.dni || null,
-                  obra_social: cM.obra_social || null,
-                  nro_afiliado: cM.nro_afiliado || null,
-                  plan_obra_social: cM.plan_obra_social || null,
-                  fecha_nacimiento: cM.fecha_nacimiento || null,
-                  grupo_sanguineo: cM.grupo_sanguineo || null,
-                  especie_raza: cM.especie_raza || null,
-                  alergias: cM.alergias || null,
-                  contacto_emergencia_nombre: cM.contacto_emergencia_nombre || null,
-                  contacto_emergencia_telefono: cM.contacto_emergencia_telefono || null,
-                  observaciones: cM.observaciones || null,
-                  creado_por: authUser.id
-                }).select().single();
-
-                if (inserted) {
-                  const mNuevo = { ...inserted, rol_actual: 'propietario' } as Miembro;
-                  mapaMiembrosDb.set(inserted.id, mNuevo);
-                  await supabase.from('miembro_tutores').insert({
-                    miembro_id: inserted.id,
-                    user_id: authUser.id,
-                    rol: 'propietario'
-                  });
-                }
-              }
+            if (insertedLana) {
+              const mNuevo = { ...insertedLana, rol_actual: 'propietario' } as Miembro;
+              mapaMiembrosDb.set(insertedLana.id, mNuevo);
+              await supabase.from('miembro_tutores').insert({
+                miembro_id: insertedLana.id,
+                user_id: authUser.id,
+                rol: 'propietario'
+              });
             }
           }
 
@@ -242,8 +224,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               }
             });
             listaFinalMiembros = Array.from(mapaUnicos.values());
-          } else if (cacheLocalMiembros && cacheLocalMiembros.length > 0) {
-            listaFinalMiembros = cacheLocalMiembros;
+          } else {
+            const cacheLocalMiembros = cargarCacheModulo<Miembro>(authUser.id, 'miembros');
+            if (cacheLocalMiembros && cacheLocalMiembros.length > 0) {
+              listaFinalMiembros = cacheLocalMiembros;
+            }
           }
 
           setMiembros(listaFinalMiembros);

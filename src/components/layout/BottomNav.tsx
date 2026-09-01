@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation';
 import { 
   Home, 
   Users, 
+  Stethoscope,
   Pill, 
   Calendar, 
   FileText, 
@@ -31,7 +32,8 @@ export function BottomNav() {
   const navItems = [
     { href: '/', label: 'Inicio', icon: Home },
     { href: '/miembros', label: 'Miembros', icon: Users },
-    { href: '/medicamentos', label: 'Medicinas', icon: Pill },
+    { href: '/medicos', label: 'Médicos', icon: Stethoscope },
+    { href: '/medicamentos', label: 'Fármacos', icon: Pill },
     { href: '/consultas', label: 'Turnos', icon: Calendar },
     { href: '/estudios', label: 'Estudios', icon: FileText },
   ];

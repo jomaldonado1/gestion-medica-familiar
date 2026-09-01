@@ -143,14 +143,15 @@ export function Header() {
         <div className="md:hidden mt-2 relative">
           <button
             onClick={() => setShowMemberDropdown(!showMemberDropdown)}
-            className="w-full flex items-center justify-between bg-sky-50 hover:bg-sky-100 text-sky-950 border border-sky-200 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-[0.99]"
+            className="w-full flex items-center justify-between bg-sky-50 hover:bg-sky-100 text-sky-950 border border-sky-300 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-[0.99]"
           >
-            <div className="flex items-center gap-2 truncate">
+            <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
               <Users className="w-4 h-4 text-sky-600 shrink-0" />
-              <span className="text-slate-500 font-semibold text-[11px] uppercase tracking-wider">Integrante:</span>
-              <span className="font-bold text-sky-900 truncate">{miembroActivo?.nombre || 'Seleccionar integrante'}</span>
+              <span className="font-extrabold text-slate-900 text-xs truncate">
+                {miembroActivo?.nombre || 'Seleccionar integrante'}
+              </span>
               {miembroActivo?.tipo && (
-                <span className="text-[10px] bg-sky-200/70 text-sky-800 px-1.5 py-0.5 rounded-md font-normal shrink-0">
+                <span className="text-[10px] bg-sky-200/80 text-sky-900 px-2 py-0.5 rounded-md font-semibold shrink-0">
                   {miembroActivo.tipo}
                 </span>
               )}
