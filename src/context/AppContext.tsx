@@ -84,26 +84,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [consultas, setConsultas] = useState<Consulta[]>(INITIAL_CONSULTAS);
   const [estudios, setEstudios] = useState<Estudio[]>(INITIAL_ESTUDIOS);
 
-  // Guardar en cache local por usuario como respaldo de persistencia
-  const guardarCacheLocal = (usrId: string, nuevosMiembros: Miembro[]) => {
+  // Guardar en cache local por usuario de todos los módulos
+  const guardarCacheCompleto = (usrId: string, data: {
+    miembros?: Miembro[];
+    medicos?: Medico[];
+    medicamentos?: Medicamento[];
+    consultas?: Consulta[];
+    estudios?: Estudio[];
+  }) => {
     try {
       if (typeof window !== 'undefined' && usrId) {
-        localStorage.setItem(`med_pwa_miembros_${usrId}`, JSON.stringify(nuevosMiembros));
+        if (data.miembros) localStorage.setItem(`med_cache_miembros_${usrId}`, JSON.stringify(data.miembros));
+        if (data.medicos) localStorage.setItem(`med_cache_medicos_${usrId}`, JSON.stringify(data.medicos));
+        if (data.medicamentos) localStorage.setItem(`med_cache_meds_${usrId}`, JSON.stringify(data.medicamentos));
+        if (data.consultas) localStorage.setItem(`med_cache_consultas_${usrId}`, JSON.stringify(data.consultas));
+        if (data.estudios) localStorage.setItem(`med_cache_estudios_${usrId}`, JSON.stringify(data.estudios));
       }
     } catch (e) {}
   };
 
-  const cargarCacheLocal = (usrId: string): Miembro[] => {
+  const cargarCacheModulo = <T,>(usrId: string, modulo: string): T[] => {
     try {
       if (typeof window !== 'undefined' && usrId) {
-        const raw = localStorage.getItem(`med_pwa_miembros_${usrId}`);
+        const raw = localStorage.getItem(`med_cache_${modulo}_${usrId}`);
         if (raw) return JSON.parse(raw);
       }
     } catch (e) {}
     return [];
   };
 
-  // Escuchar sesión y cargar datos reales de Supabase con Reconciliación Inteligente
+  // Escuchar sesión y cargar datos reales de Supabase con Reconciliación Completa
   useEffect(() => {
     async function cargarDatosSupabase() {
       try {
@@ -159,14 +169,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
 
           const listaMiembrosDb = Array.from(mapaMiembrosDb.values());
-          const cacheLocal = cargarCacheLocal(authUser.id);
+          const cacheLocalMiembros = cargarCacheModulo<Miembro>(authUser.id, 'miembros');
 
-          if (cacheLocal && cacheLocal.length > 0) {
-            // RECONCILIACIÓN: Si el usuario modificó/eliminó localmente en su dispositivo,
-            // forzar a Supabase a adoptar la versión del usuario!
+          let listaFinalMiembros: Miembro[] = [];
 
-            // 1. Eliminar de Supabase los miembros que fueron borrados localmente por el usuario
-            const clavesCache = new Set(cacheLocal.map(m => (m.nombre.toLowerCase().trim() + '_' + m.tipo)));
+          if (cacheLocalMiembros && cacheLocalMiembros.length > 0) {
+            // RECONCILIACIÓN DE MIEMBROS
+            const clavesCache = new Set(cacheLocalMiembros.map(m => (m.nombre.toLowerCase().trim() + '_' + m.tipo)));
             for (const dbM of listaMiembrosDb) {
               const claveDb = dbM.nombre.toLowerCase().trim() + '_' + dbM.tipo;
               if (!clavesCache.has(claveDb) && dbM.creado_por === authUser.id) {
@@ -175,9 +184,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               }
             }
 
-            // 2. Insertar o actualizar en Supabase los miembros corregidos/creados por el usuario
-            for (let i = 0; i < cacheLocal.length; i++) {
-              const cM = cacheLocal[i];
+            for (let i = 0; i < cacheLocalMiembros.length; i++) {
+              const cM = cacheLocalMiembros[i];
               const claveCache = cM.nombre.toLowerCase().trim() + '_' + cM.tipo;
 
               const dbMatch = listaMiembrosDb.find(dbM => 
@@ -185,7 +193,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               );
 
               if (!dbMatch) {
-                // Nuevo integrante local -> Insertar en Supabase
                 const { data: inserted } = await supabase.from('miembros').insert({
                   tipo: cM.tipo,
                   nombre: cM.nombre,
@@ -205,7 +212,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 }).select().single();
 
                 if (inserted) {
-                  cacheLocal[i].id = inserted.id;
+                  cacheLocalMiembros[i].id = inserted.id;
                   await supabase.from('miembro_tutores').insert({
                     miembro_id: inserted.id,
                     user_id: authUser.id,
@@ -213,8 +220,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                   });
                 }
               } else {
-                // Integrante existente -> Sincronizar actualización en Supabase
-                cacheLocal[i].id = dbMatch.id; // Asignar UUID real de DB
+                cacheLocalMiembros[i].id = dbMatch.id;
                 const payload: Record<string, any> = {
                   nombre: cM.nombre,
                   tipo: cM.tipo,
@@ -235,10 +241,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               }
             }
 
-            setMiembros(cacheLocal);
-            guardarCacheLocal(authUser.id, cacheLocal);
+            listaFinalMiembros = cacheLocalMiembros;
           } else {
-            // Si no había cacheLocal previa, usar lista de Supabase deduplicada
             const mapaUnicos = new Map<string, Miembro>();
             listaMiembrosDb.forEach(m => {
               const clave = `${m.nombre.toLowerCase().trim()}_${m.tipo}`;
@@ -246,13 +250,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 mapaUnicos.set(clave, m);
               }
             });
-            const miembrosLimpios = Array.from(mapaUnicos.values());
-
-            setMiembros(miembrosLimpios);
-            guardarCacheLocal(authUser.id, miembrosLimpios);
+            listaFinalMiembros = Array.from(mapaUnicos.values());
           }
 
-          const idsMiembros = (cacheLocal.length > 0 ? cacheLocal : listaMiembrosDb).map(m => m.id);
+          setMiembros(listaFinalMiembros);
+          guardarCacheCompleto(authUser.id, { miembros: listaFinalMiembros });
+
+          if (listaFinalMiembros.length > 0) {
+            setMiembroActivoIdState(prev => prev || listaFinalMiembros[0].id);
+          }
+
+          const idsMiembros = listaFinalMiembros.map(m => m.id);
 
           if (idsMiembros.length > 0) {
             // 3. Cargar Médicos
@@ -260,28 +268,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               .from('medicos')
               .select('*')
               .in('miembro_id', idsMiembros);
-            if (dbMedicos) setMedicos(dbMedicos as Medico[]);
+            const cacheMedicos = cargarCacheModulo<Medico>(authUser.id, 'medicos');
+            const medicosFinales = dbMedicos && dbMedicos.length > 0 ? (dbMedicos as Medico[]) : cacheMedicos;
+            setMedicos(medicosFinales);
+            guardarCacheCompleto(authUser.id, { medicos: medicosFinales });
 
             // 4. Cargar Medicamentos
             const { data: dbMeds } = await supabase
               .from('medicamentos')
               .select('*')
               .in('miembro_id', idsMiembros);
-            if (dbMeds) setMedicamentos(dbMeds as Medicamento[]);
+            const cacheMeds = cargarCacheModulo<Medicamento>(authUser.id, 'meds');
+            const medsFinales = dbMeds && dbMeds.length > 0 ? (dbMeds as Medicamento[]) : cacheMeds;
+            setMedicamentos(medsFinales);
+            guardarCacheCompleto(authUser.id, { medicamentos: medsFinales });
 
             // 5. Cargar Consultas
             const { data: dbConsultas } = await supabase
               .from('consultas')
               .select('*')
               .in('miembro_id', idsMiembros);
-            if (dbConsultas) setConsultas(dbConsultas as Consulta[]);
+            const cacheConsultas = cargarCacheModulo<Consulta>(authUser.id, 'consultas');
+            const consultasFinales = dbConsultas && dbConsultas.length > 0 ? (dbConsultas as Consulta[]) : cacheConsultas;
+            setConsultas(consultasFinales);
+            guardarCacheCompleto(authUser.id, { consultas: consultasFinales });
 
             // 6. Cargar Estudios
             const { data: dbEstudios } = await supabase
               .from('estudios')
               .select('*')
               .in('miembro_id', idsMiembros);
-            if (dbEstudios) setEstudios(dbEstudios as Estudio[]);
+            const cacheEstudios = cargarCacheModulo<Estudio>(authUser.id, 'estudios');
+            const estudiosFinales = dbEstudios && dbEstudios.length > 0 ? (dbEstudios as Estudio[]) : cacheEstudios;
+            setEstudios(estudiosFinales);
+            guardarCacheCompleto(authUser.id, { estudios: estudiosFinales });
           }
         }
       } catch (err) {
@@ -317,6 +337,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
     setUser(null);
     setMiembros([]);
+    setMedicos([]);
+    setMedicamentos([]);
+    setConsultas([]);
+    setEstudios([]);
     setMiembroActivoIdState('');
     router.push('/login');
     router.refresh();
@@ -324,8 +348,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const sincronizarConNube = async () => {
     if (!user?.id) return;
-    guardarCacheLocal(user.id, miembros);
-    
+
+    // 1. Sincronizar Miembros
+    guardarCacheCompleto(user.id, { miembros });
     for (const m of miembros) {
       const payload: Record<string, any> = {
         nombre: m.nombre,
@@ -362,7 +387,78 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await supabase.from('miembros').update(payload).eq('id', m.id);
       }
     }
-    guardarCacheLocal(user.id, miembros);
+
+    // 2. Sincronizar Médicos
+    guardarCacheCompleto(user.id, { medicos });
+    for (const med of medicos) {
+      if (med.id.startsWith('med-')) {
+        const { data: inserted } = await supabase.from('medicos').insert({
+          miembro_id: med.miembro_id,
+          nombre: med.nombre,
+          especialidad: med.especialidad || null,
+          telefono: med.telefono || null,
+          centro_atencion: med.centro_atencion || null,
+          direccion: med.direccion || null,
+          observaciones: med.observaciones || null
+        }).select().single();
+        if (inserted) med.id = inserted.id;
+      }
+    }
+
+    // 3. Sincronizar Medicamentos
+    guardarCacheCompleto(user.id, { medicamentos });
+    for (const farm of medicamentos) {
+      if (farm.id.startsWith('farm-')) {
+        const { data: inserted } = await supabase.from('medicamentos').insert({
+          miembro_id: farm.miembro_id,
+          nombre: farm.nombre,
+          droga_componente: farm.droga_componente || null,
+          dosis: farm.dosis || null,
+          frecuencia: farm.frecuencia || null,
+          horario: farm.horario || null,
+          activo: farm.activo,
+          observaciones: farm.observaciones || null
+        }).select().single();
+        if (inserted) farm.id = inserted.id;
+      }
+    }
+
+    // 4. Sincronizar Consultas
+    guardarCacheCompleto(user.id, { consultas });
+    for (const cons of consultas) {
+      if (cons.id.startsWith('cons-')) {
+        const medicoIdClean = (cons.medico_id && !cons.medico_id.startsWith('med-')) ? cons.medico_id : null;
+        const { data: inserted } = await supabase.from('consultas').insert({
+          miembro_id: cons.miembro_id,
+          medico_id: medicoIdClean,
+          motivo: cons.motivo,
+          fecha_visita_anterior: cons.fecha_visita_anterior || null,
+          fecha_proxima_visita: cons.fecha_proxima_visita || null,
+          estado: cons.estado || 'programada',
+          observaciones: cons.observaciones || null
+        }).select().single();
+        if (inserted) cons.id = inserted.id;
+      }
+    }
+
+    // 5. Sincronizar Estudios
+    guardarCacheCompleto(user.id, { estudios });
+    for (const est of estudios) {
+      if (est.id.startsWith('est-')) {
+        const { data: inserted } = await supabase.from('estudios').insert({
+          miembro_id: est.miembro_id,
+          titulo: est.titulo,
+          tipo_estudio: est.tipo_estudio,
+          fecha: est.fecha || new Date().toISOString().split('T')[0],
+          archivo_url: est.archivo_url || null,
+          archivo_nombre: est.archivo_nombre || null,
+          observaciones: est.observaciones || null
+        }).select().single();
+        if (inserted) est.id = inserted.id;
+      }
+    }
+
+    guardarCacheCompleto(user.id, { miembros, medicos, medicamentos, consultas, estudios });
   };
 
   // Agregar Integrante
@@ -379,15 +475,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       rol_actual: 'propietario'
     };
 
-    // 1. Mostrar de inmediato en UI
     setMiembros(prev => {
       const actualizados = [...prev, nuevoMiembro];
-      if (user?.id) guardarCacheLocal(user.id, actualizados);
+      if (user?.id) guardarCacheCompleto(user.id, { miembros: actualizados });
       return actualizados;
     });
     setMiembroActivoIdState(tempId);
 
-    // 2. Persistir en Supabase y actualizar con el UUID real devuelto
     try {
       if (user?.id) {
         const { data, error } = await supabase.from('miembros').insert({
@@ -414,15 +508,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             rol_actual: 'propietario'
           };
 
-          // Reemplazar tempId por el UUID real en el estado local y en localStorage
           setMiembros(prev => {
             const reemplazados = prev.map(m => m.id === tempId ? realMiembro : m);
-            if (user?.id) guardarCacheLocal(user.id, reemplazados);
+            if (user?.id) guardarCacheCompleto(user.id, { miembros: reemplazados });
             return reemplazados;
           });
           setMiembroActivoIdState(realMiembro.id);
 
-          // Registrar tutor propietario
           await supabase.from('miembro_tutores').insert({
             miembro_id: data.id,
             user_id: user.id,
@@ -431,22 +523,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (e) {
-      console.log('Error insertando en Supabase, manteniendo copia local:', e);
+      console.log('Error insertando en Supabase:', e);
     }
   };
 
-  // Editar Integrante con desinfectado de payload y coincidencia por ID y nombre
+  // Editar Integrante
   const editarMiembro = async (id: string, datos: Partial<Miembro>) => {
     const targetOld = miembros.find(m => m.id === id);
 
-    // 1. Actualizar estado local de inmediato
     setMiembros(prev => {
       const actualizados = prev.map(m => m.id === id ? { ...m, ...datos } : m);
-      if (user?.id) guardarCacheLocal(user.id, actualizados);
+      if (user?.id) guardarCacheCompleto(user.id, { miembros: actualizados });
       return actualizados;
     });
 
-    // 2. Desinfectar objeto para Supabase (solo enviar columnas validas de la tabla miembros)
     try {
       if (user?.id) {
         const payload: Record<string, any> = {};
@@ -466,10 +556,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (datos.observaciones !== undefined) payload.observaciones = datos.observaciones;
 
         if (Object.keys(payload).length > 0) {
-          // Intentar por ID de Supabase primero
           const { error } = await supabase.from('miembros').update(payload).eq('id', id);
 
-          // Si el ID era local (m-...) o hubo desfasaje, actualizar por nombre e id de usuario
           if (error || id.startsWith('m-')) {
             if (targetOld?.nombre) {
               await supabase
@@ -486,14 +574,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Eliminar Integrante con borrado de duplicados e IDs temporales en Supabase
+  // Eliminar Integrante
   const eliminarMiembro = async (id: string) => {
     const target = miembros.find(m => m.id === id);
 
-    // 1. Actualizar estado local de inmediato
     setMiembros(prev => {
       const actualizados = prev.filter(m => m.id !== id);
-      if (user?.id) guardarCacheLocal(user.id, actualizados);
+      if (user?.id) guardarCacheCompleto(user.id, { miembros: actualizados });
       return actualizados;
     });
 
@@ -502,14 +589,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (restante) setMiembroActivoIdState(restante ? restante.id : '');
     }
 
-    // 2. Persistir eliminación en Supabase
     try {
       if (user?.id) {
-        // Borrar por ID exacto
         await supabase.from('miembro_tutores').delete().eq('miembro_id', id);
         await supabase.from('miembros').delete().eq('id', id);
 
-        // Si el integrante tiene un nombre, eliminar cualquier duplicado en Supabase con el mismo nombre para este usuario
         if (target?.nombre) {
           const { data: dupes } = await supabase
             .from('miembros')
@@ -532,111 +616,251 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Médicos
   const agregarMedico = async (datos: Omit<Medico, 'id' | 'created_at'>) => {
-    const nuevo: Medico = {
+    const tempId = `med-${Date.now()}`;
+    let nuevoMedico: Medico = {
       ...datos,
-      id: `med-${Date.now()}`,
+      id: tempId,
       created_at: new Date().toISOString()
     };
-    setMedicos(prev => [nuevo, ...prev]);
+
+    setMedicos(prev => {
+      const actualizados = [nuevoMedico, ...prev];
+      if (user?.id) guardarCacheCompleto(user.id, { medicos: actualizados });
+      return actualizados;
+    });
 
     try {
-      await supabase.from('medicos').insert(datos);
-    } catch (e) {}
+      if (user?.id) {
+        const { data, error } = await supabase.from('medicos').insert({
+          miembro_id: datos.miembro_id,
+          nombre: datos.nombre,
+          especialidad: datos.especialidad || null,
+          telefono: datos.telefono || null,
+          centro_atencion: datos.centro_atencion || null,
+          direccion: datos.direccion || null,
+          observaciones: datos.observaciones || null
+        }).select().single();
+
+        if (data && !error) {
+          setMedicos(prev => {
+            const reemplazados = prev.map(m => m.id === tempId ? (data as Medico) : m);
+            if (user?.id) guardarCacheCompleto(user.id, { medicos: reemplazados });
+            return reemplazados;
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Error insertando médico:', e);
+    }
   };
 
   const eliminarMedico = async (id: string) => {
-    setMedicos(prev => prev.filter(m => m.id !== id));
+    setMedicos(prev => {
+      const actualizados = prev.filter(m => m.id !== id);
+      if (user?.id) guardarCacheCompleto(user.id, { medicos: actualizados });
+      return actualizados;
+    });
+
     try {
-      await supabase.from('medicos').delete().eq('id', id);
+      if (user?.id) {
+        await supabase.from('medicos').delete().eq('id', id);
+      }
     } catch (e) {}
   };
 
   // Medicamentos
   const agregarMedicamento = async (datos: Omit<Medicamento, 'id' | 'created_at'>) => {
-    const nuevo: Medicamento = {
+    const tempId = `farm-${Date.now()}`;
+    let nuevoMed: Medicamento = {
       ...datos,
-      id: `farm-${Date.now()}`,
+      id: tempId,
       created_at: new Date().toISOString()
     };
-    setMedicamentos(prev => [nuevo, ...prev]);
+
+    setMedicamentos(prev => {
+      const actualizados = [nuevoMed, ...prev];
+      if (user?.id) guardarCacheCompleto(user.id, { medicamentos: actualizados });
+      return actualizados;
+    });
 
     try {
-      await supabase.from('medicamentos').insert(datos);
-    } catch (e) {}
+      if (user?.id) {
+        const { data, error } = await supabase.from('medicamentos').insert({
+          miembro_id: datos.miembro_id,
+          nombre: datos.nombre,
+          droga_componente: datos.droga_componente || null,
+          dosis: datos.dosis || null,
+          frecuencia: datos.frecuencia || null,
+          horario: datos.horario || null,
+          activo: datos.activo ?? true,
+          observaciones: datos.observaciones || null
+        }).select().single();
+
+        if (data && !error) {
+          setMedicamentos(prev => {
+            const reemplazados = prev.map(m => m.id === tempId ? (data as Medicamento) : m);
+            if (user?.id) guardarCacheCompleto(user.id, { medicamentos: reemplazados });
+            return reemplazados;
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Error insertando medicamento:', e);
+    }
   };
 
   const toggleMedicamentoActivo = async (id: string) => {
     const medTarget = medicamentos.find(m => m.id === id);
     const nuevoEstado = medTarget ? !medTarget.activo : true;
 
-    setMedicamentos(prev => prev.map(m => m.id === id ? { ...m, activo: nuevoEstado } : m));
+    setMedicamentos(prev => {
+      const actualizados = prev.map(m => m.id === id ? { ...m, activo: nuevoEstado } : m);
+      if (user?.id) guardarCacheCompleto(user.id, { medicamentos: actualizados });
+      return actualizados;
+    });
 
     try {
-      await supabase.from('medicamentos').update({ activo: nuevoEstado }).eq('id', id);
+      if (user?.id) {
+        await supabase.from('medicamentos').update({ activo: nuevoEstado }).eq('id', id);
+      }
     } catch (e) {}
   };
 
   const eliminarMedicamento = async (id: string) => {
-    setMedicamentos(prev => prev.filter(m => m.id !== id));
+    setMedicamentos(prev => {
+      const actualizados = prev.filter(m => m.id !== id);
+      if (user?.id) guardarCacheCompleto(user.id, { medicamentos: actualizados });
+      return actualizados;
+    });
+
     try {
-      await supabase.from('medicamentos').delete().eq('id', id);
+      if (user?.id) {
+        await supabase.from('medicamentos').delete().eq('id', id);
+      }
     } catch (e) {}
   };
 
   // Consultas
   const agregarConsulta = async (datos: Omit<Consulta, 'id' | 'created_at'>) => {
-    const nuevo: Consulta = {
+    const tempId = `cons-${Date.now()}`;
+    let nuevaCons: Consulta = {
       ...datos,
-      id: `cons-${Date.now()}`,
+      id: tempId,
       created_at: new Date().toISOString()
     };
-    setConsultas(prev => [nuevo, ...prev]);
+
+    setConsultas(prev => {
+      const actualizados = [nuevaCons, ...prev];
+      if (user?.id) guardarCacheCompleto(user.id, { consultas: actualizados });
+      return actualizados;
+    });
 
     try {
-      await supabase.from('consultas').insert({
-        miembro_id: datos.miembro_id,
-        medico_id: datos.medico_id,
-        motivo: datos.motivo,
-        fecha_visita_anterior: datos.fecha_visita_anterior,
-        fecha_proxima_visita: datos.fecha_proxima_visita,
-        estado: datos.estado,
-        observaciones: datos.observaciones
-      });
-    } catch (e) {}
+      if (user?.id) {
+        const medicoIdSanitizado = (datos.medico_id && !datos.medico_id.startsWith('med-')) ? datos.medico_id : null;
+
+        const { data, error } = await supabase.from('consultas').insert({
+          miembro_id: datos.miembro_id,
+          medico_id: medicoIdSanitizado,
+          motivo: datos.motivo,
+          fecha_visita_anterior: datos.fecha_visita_anterior || null,
+          fecha_proxima_visita: datos.fecha_proxima_visita || null,
+          estado: datos.estado || 'programada',
+          observaciones: datos.observaciones || null
+        }).select().single();
+
+        if (data && !error) {
+          setConsultas(prev => {
+            const reemplazados = prev.map(c => c.id === tempId ? { ...data, medico_nombre: datos.medico_nombre } as Consulta : c);
+            if (user?.id) guardarCacheCompleto(user.id, { consultas: reemplazados });
+            return reemplazados;
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Error insertando consulta:', e);
+    }
   };
 
   const cambiarEstadoConsulta = async (id: string, estado: 'programada' | 'completada' | 'cancelada') => {
-    setConsultas(prev => prev.map(c => c.id === id ? { ...c, estado } : c));
+    setConsultas(prev => {
+      const actualizados = prev.map(c => c.id === id ? { ...c, estado } : c);
+      if (user?.id) guardarCacheCompleto(user.id, { consultas: actualizados });
+      return actualizados;
+    });
+
     try {
-      await supabase.from('consultas').update({ estado }).eq('id', id);
+      if (user?.id) {
+        await supabase.from('consultas').update({ estado }).eq('id', id);
+      }
     } catch (e) {}
   };
 
   const eliminarConsulta = async (id: string) => {
-    setConsultas(prev => prev.filter(c => c.id !== id));
+    setConsultas(prev => {
+      const actualizados = prev.filter(c => c.id !== id);
+      if (user?.id) guardarCacheCompleto(user.id, { consultas: actualizados });
+      return actualizados;
+    });
+
     try {
-      await supabase.from('consultas').delete().eq('id', id);
+      if (user?.id) {
+        await supabase.from('consultas').delete().eq('id', id);
+      }
     } catch (e) {}
   };
 
   // Estudios
   const agregarEstudio = async (datos: Omit<Estudio, 'id' | 'created_at'>) => {
-    const nuevo: Estudio = {
+    const tempId = `est-${Date.now()}`;
+    let nuevoEstudio: Estudio = {
       ...datos,
-      id: `est-${Date.now()}`,
+      id: tempId,
       created_at: new Date().toISOString()
     };
-    setEstudios(prev => [nuevo, ...prev]);
+
+    setEstudios(prev => {
+      const actualizados = [nuevoEstudio, ...prev];
+      if (user?.id) guardarCacheCompleto(user.id, { estudios: actualizados });
+      return actualizados;
+    });
 
     try {
-      await supabase.from('estudios').insert(datos);
-    } catch (e) {}
+      if (user?.id) {
+        const { data, error } = await supabase.from('estudios').insert({
+          miembro_id: datos.miembro_id,
+          titulo: datos.titulo,
+          tipo_estudio: datos.tipo_estudio,
+          fecha: datos.fecha || new Date().toISOString().split('T')[0],
+          archivo_url: datos.archivo_url || null,
+          archivo_nombre: datos.archivo_nombre || null,
+          observaciones: datos.observaciones || null
+        }).select().single();
+
+        if (data && !error) {
+          setEstudios(prev => {
+            const reemplazados = prev.map(e => e.id === tempId ? (data as Estudio) : e);
+            if (user?.id) guardarCacheCompleto(user.id, { estudios: reemplazados });
+            return reemplazados;
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Error insertando estudio:', e);
+    }
   };
 
   const eliminarEstudio = async (id: string) => {
-    setEstudios(prev => prev.filter(e => e.id !== id));
+    setEstudios(prev => {
+      const actualizados = prev.filter(e => e.id !== id);
+      if (user?.id) guardarCacheCompleto(user.id, { estudios: actualizados });
+      return actualizados;
+    });
+
     try {
-      await supabase.from('estudios').delete().eq('id', id);
+      if (user?.id) {
+        await supabase.from('estudios').delete().eq('id', id);
+      }
     } catch (e) {}
   };
 
