@@ -114,7 +114,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return [];
   };
 
-  // Escuchar sesión y cargar datos reales de Supabase (Single Source of Truth)
+  // Escuchar sesión y cargar datos reales de Supabase (Single Source of Truth con Auto-reparación)
   useEffect(() => {
     async function cargarDatosSupabase() {
       try {
@@ -169,25 +169,81 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             });
           }
 
+          // Self-healing: auto-limpieza de erratas y duplicados en Supabase
+          if (dbMiembrosCreados && dbMiembrosCreados.length > 0) {
+            // 1. Borrar duplicado de MARIA EVA CARRANZA (Yo / Adulto) si existe la de (Adulto Mayor / Padre)
+            const dupesMariaEva = dbMiembrosCreados.filter(m => m.nombre.toLowerCase().trim().includes('maria eva carranza'));
+            if (dupesMariaEva.length > 1) {
+              const dupeABorrar = dupesMariaEva.find(m => m.tipo === 'Yo / Adulto');
+              if (dupeABorrar) {
+                await supabase.from('miembro_tutores').delete().eq('miembro_id', dupeABorrar.id);
+                await supabase.from('miembros').delete().eq('id', dupeABorrar.id);
+                mapaMiembrosDb.delete(dupeABorrar.id);
+              }
+            }
+
+            // 2. Corregir errata MALDOANDO -> MALDONADO
+            const antonioErrata = dbMiembrosCreados.find(m => m.nombre.toLowerCase().trim().includes('maldoando'));
+            if (antonioErrata) {
+              await supabase.from('miembros').update({ nombre: 'ANTONIO MALDONADO' }).eq('id', antonioErrata.id);
+              const mObj = mapaMiembrosDb.get(antonioErrata.id);
+              if (mObj) mObj.nombre = 'ANTONIO MALDONADO';
+            }
+          }
+
+          // 3. Sincronizar items de la caché local que faltan en Supabase (ej: LANA)
+          const cacheLocalMiembros = cargarCacheModulo<Miembro>(authUser.id, 'miembros');
+          if (cacheLocalMiembros && cacheLocalMiembros.length > 0) {
+            for (const cM of cacheLocalMiembros) {
+              const claveCache = cM.nombre.toLowerCase().trim();
+              const existeEnDb = Array.from(mapaMiembrosDb.values()).some(dbM => dbM.nombre.toLowerCase().trim() === claveCache);
+
+              if (!existeEnDb) {
+                const { data: inserted } = await supabase.from('miembros').insert({
+                  tipo: cM.tipo,
+                  nombre: cM.nombre,
+                  telefono: cM.telefono || null,
+                  dni: cM.dni || null,
+                  obra_social: cM.obra_social || null,
+                  nro_afiliado: cM.nro_afiliado || null,
+                  plan_obra_social: cM.plan_obra_social || null,
+                  fecha_nacimiento: cM.fecha_nacimiento || null,
+                  grupo_sanguineo: cM.grupo_sanguineo || null,
+                  especie_raza: cM.especie_raza || null,
+                  alergias: cM.alergias || null,
+                  contacto_emergencia_nombre: cM.contacto_emergencia_nombre || null,
+                  contacto_emergencia_telefono: cM.contacto_emergencia_telefono || null,
+                  observaciones: cM.observaciones || null,
+                  creado_por: authUser.id
+                }).select().single();
+
+                if (inserted) {
+                  const mNuevo = { ...inserted, rol_actual: 'propietario' } as Miembro;
+                  mapaMiembrosDb.set(inserted.id, mNuevo);
+                  await supabase.from('miembro_tutores').insert({
+                    miembro_id: inserted.id,
+                    user_id: authUser.id,
+                    rol: 'propietario'
+                  });
+                }
+              }
+            }
+          }
+
           const listaMiembrosDb = Array.from(mapaMiembrosDb.values());
           let listaFinalMiembros: Miembro[] = [];
 
-          // REGLA CLAVE MULTIDISPOSITIVO: La base de datos de Supabase es la fuente de verdad cuando hay conexión
           if (listaMiembrosDb && listaMiembrosDb.length > 0) {
             const mapaUnicos = new Map<string, Miembro>();
             listaMiembrosDb.forEach(m => {
-              const clave = `${m.nombre.toLowerCase().trim()}_${m.tipo}`;
+              const clave = m.nombre.toLowerCase().trim();
               if (!mapaUnicos.has(clave)) {
                 mapaUnicos.set(clave, m);
               }
             });
             listaFinalMiembros = Array.from(mapaUnicos.values());
-          } else {
-            // Fallback a localStorage solo si Supabase no retornó datos (modo offline)
-            const cacheLocalMiembros = cargarCacheModulo<Miembro>(authUser.id, 'miembros');
-            if (cacheLocalMiembros && cacheLocalMiembros.length > 0) {
-              listaFinalMiembros = cacheLocalMiembros;
-            }
+          } else if (cacheLocalMiembros && cacheLocalMiembros.length > 0) {
+            listaFinalMiembros = cacheLocalMiembros;
           }
 
           setMiembros(listaFinalMiembros);

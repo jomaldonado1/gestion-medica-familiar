@@ -65,124 +65,139 @@ export function Header() {
         </div>
       )}
 
-      <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
-        {/* Mobile Logo Brand */}
-        <div className="flex items-center gap-2 md:hidden">
-          <div className="bg-sky-600 text-white p-2 rounded-xl shadow-sm">
-            <HeartPulse className="w-5 h-5" />
-          </div>
-          <div>
-            <span className="font-bold text-slate-900 text-base leading-tight">MedFamiliar</span>
-            <span className="block text-[10px] text-sky-600 font-bold">PWA Salud</span>
-          </div>
-        </div>
-
-        {/* Desktop Active Member Indicator */}
-        <div className="hidden md:flex items-center gap-2">
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Integrante:</span>
-          {miembros.length === 0 ? (
-            <Link
-              href="/miembros"
-              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-sky-50 text-sky-700 hover:bg-sky-100 flex items-center gap-1 border border-sky-200"
-            >
-              <Plus className="w-3.5 h-3.5" /> Agregar primer integrante
-            </Link>
-          ) : (
-            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200">
-              {miembros.map((m) => {
-                const isSelected = miembroActivo?.id === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => setMiembroActivoId(m.id)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                      isSelected
-                        ? 'bg-sky-600 text-white shadow-sm'
-                        : 'text-slate-600 hover:bg-slate-200/70'
-                    }`}
-                  >
-                    <span>{m.nombre}</span>
-                    <span className={`text-[10px] font-normal opacity-80 ${isSelected ? 'text-sky-100' : 'text-slate-500'}`}>
-                      ({m.tipo})
-                    </span>
-                  </button>
-                );
-              })}
+      <div className="max-w-7xl mx-auto px-4 py-2.5">
+        <div className="flex items-center justify-between gap-2">
+          {/* Logo Brand */}
+          <div className="flex items-center gap-2">
+            <div className="bg-sky-600 text-white p-2 rounded-xl shadow-sm">
+              <HeartPulse className="w-5 h-5" />
             </div>
-          )}
+            <div>
+              <span className="font-bold text-slate-900 text-base leading-tight block">MedFamiliar</span>
+              <span className="block text-[10px] text-sky-600 font-bold">PWA Salud</span>
+            </div>
+          </div>
+
+          {/* Desktop Active Member Indicator */}
+          <div className="hidden md:flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Integrante:</span>
+            {miembros.length === 0 ? (
+              <Link
+                href="/miembros"
+                className="px-3 py-1.5 rounded-xl text-xs font-bold bg-sky-50 text-sky-700 hover:bg-sky-100 flex items-center gap-1 border border-sky-200"
+              >
+                <Plus className="w-3.5 h-3.5" /> Agregar primer integrante
+              </Link>
+            ) : (
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-2xl border border-slate-200">
+                {miembros.map((m) => {
+                  const isSelected = miembroActivo?.id === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => setMiembroActivoId(m.id)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        isSelected
+                          ? 'bg-sky-600 text-white shadow-sm'
+                          : 'text-slate-600 hover:bg-slate-200/70'
+                      }`}
+                    >
+                      <span>{m.nombre}</span>
+                      <span className={`text-[10px] font-normal opacity-80 ${isSelected ? 'text-sky-100' : 'text-slate-500'}`}>
+                        ({m.tipo})
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Action Buttons: Emergency QR Button & Logout */}
+          <div className="flex items-center gap-2">
+            {miembroActivo && (
+              <button
+                onClick={() => setShowQRModal(true)}
+                className="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-3 py-2 rounded-xl transition-all shadow-sm active:scale-95 shrink-0"
+              >
+                <QrCode className="w-4 h-4" />
+                <span className="hidden sm:inline">Generar QR SOS</span>
+                <span className="sm:hidden text-xs">QR SOS</span>
+              </button>
+            )}
+
+            {user && (
+              <button
+                onClick={cerrarSesion}
+                className="flex items-center gap-1.5 bg-slate-100 hover:bg-red-50 hover:text-red-700 hover:border-red-200 text-slate-700 font-bold text-xs px-2.5 py-2 rounded-xl border border-slate-200 transition-all active:scale-95 shrink-0"
+                title="Cerrar Sesión"
+              >
+                <LogOut className="w-4 h-4 text-red-600" />
+                <span className="hidden sm:inline">Cerrar Sesión</span>
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* Mobile Member Switcher Dropdown */}
-        <div className="relative md:hidden">
+        {/* Mobile Full-Width Active Member Selector Bar */}
+        <div className="md:hidden mt-2 relative">
           <button
             onClick={() => setShowMemberDropdown(!showMemberDropdown)}
-            className="flex items-center gap-2 bg-sky-50 text-sky-800 border border-sky-200 px-3 py-1.5 rounded-xl text-xs font-bold"
+            className="w-full flex items-center justify-between bg-sky-50 hover:bg-sky-100 text-sky-950 border border-sky-200 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-sm active:scale-[0.99]"
           >
-            <Users className="w-4 h-4 text-sky-600" />
-            <span className="max-w-[120px] truncate">{miembroActivo?.nombre || 'Sin integrantes'}</span>
-            <ChevronDown className="w-3.5 h-3.5 text-sky-600" />
+            <div className="flex items-center gap-2 truncate">
+              <Users className="w-4 h-4 text-sky-600 shrink-0" />
+              <span className="text-slate-500 font-semibold text-[11px] uppercase tracking-wider">Integrante:</span>
+              <span className="font-bold text-sky-900 truncate">{miembroActivo?.nombre || 'Seleccionar integrante'}</span>
+              {miembroActivo?.tipo && (
+                <span className="text-[10px] bg-sky-200/70 text-sky-800 px-1.5 py-0.5 rounded-md font-normal shrink-0">
+                  {miembroActivo.tipo}
+                </span>
+              )}
+            </div>
+            <ChevronDown className={`w-4 h-4 text-sky-600 transition-transform duration-200 shrink-0 ${showMemberDropdown ? 'rotate-180' : ''}`} />
           </button>
 
           {showMemberDropdown && (
-            <div className="absolute right-0 mt-2 w-56 bg-white border border-slate-200 rounded-2xl shadow-xl py-2 z-50">
-              <p className="px-3 py-1 text-[11px] font-bold text-slate-400 uppercase">Cambiar integrante</p>
+            <div className="absolute left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
+              <p className="px-3.5 py-1 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Cambiar Integrante Familiar</p>
               {miembros.length === 0 ? (
-                <p className="px-3 py-2 text-xs text-slate-500 italic">No hay integrantes creados.</p>
+                <p className="px-3.5 py-2 text-xs text-slate-500 italic">No hay integrantes creados.</p>
               ) : (
-                miembros.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => {
-                      setMiembroActivoId(m.id);
-                      setShowMemberDropdown(false);
-                    }}
-                    className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between ${
-                      miembroActivo?.id === m.id ? 'bg-sky-50 text-sky-700 font-bold' : 'hover:bg-slate-50 text-slate-700'
-                    }`}
-                  >
-                    <div>
-                      <p className="font-semibold">{m.nombre}</p>
-                      <p className="text-[10px] text-slate-500">{m.tipo}</p>
-                    </div>
-                    {miembroActivo?.id === m.id && <UserCheck className="w-4 h-4 text-sky-600" />}
-                  </button>
-                ))
+                miembros.map((m) => {
+                  const isCurrent = miembroActivo?.id === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => {
+                        setMiembroActivoId(m.id);
+                        setShowMemberDropdown(false);
+                      }}
+                      className={`w-full text-left px-3.5 py-2.5 text-xs flex items-center justify-between transition-colors ${
+                        isCurrent ? 'bg-sky-50 text-sky-800 font-bold border-l-4 border-sky-600' : 'hover:bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold">{m.nombre}</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 font-medium">
+                          {m.tipo}
+                        </span>
+                      </div>
+                      {isCurrent && <UserCheck className="w-4 h-4 text-sky-600 shrink-0" />}
+                    </button>
+                  );
+                })
               )}
-              <div className="border-t border-slate-100 mt-1 pt-1 px-2">
+              <div className="border-t border-slate-100 mt-1.5 pt-1.5 px-2">
                 <Link
                   href="/miembros"
                   onClick={() => setShowMemberDropdown(false)}
-                  className="flex items-center gap-1.5 text-xs text-sky-600 font-bold p-1.5 hover:underline"
+                  className="flex items-center gap-2 text-xs text-sky-600 font-bold p-2 hover:bg-sky-50 rounded-xl transition-colors"
                 >
-                  <Plus className="w-3.5 h-3.5" /> Agregar integrante
+                  <Plus className="w-4 h-4" /> Administrar o agregar integrantes
                 </Link>
               </div>
             </div>
-          )}
-        </div>
-
-        {/* Action Buttons: Emergency QR Button & Logout */}
-        <div className="flex items-center gap-2">
-          {miembroActivo && (
-            <button
-              onClick={() => setShowQRModal(true)}
-              className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-3 py-2 rounded-xl transition-all shadow-sm active:scale-95"
-            >
-              <QrCode className="w-4 h-4" />
-              <span className="hidden sm:inline">Generar QR SOS</span>
-              <span className="sm:hidden">QR</span>
-            </button>
-          )}
-
-          {user && (
-            <button
-              onClick={cerrarSesion}
-              className="flex items-center gap-1.5 bg-slate-100 hover:bg-red-50 hover:text-red-700 hover:border-red-200 text-slate-700 font-bold text-xs px-3 py-2 rounded-xl border border-slate-200 transition-all active:scale-95 shrink-0"
-              title="Cerrar Sesión"
-            >
-              <LogOut className="w-4 h-4 text-red-600" />
-              <span className="hidden sm:inline">Cerrar Sesión</span>
-            </button>
           )}
         </div>
       </div>
