@@ -17,20 +17,33 @@ import {
   CheckCircle2,
   Mail,
   CreditCard,
-  FileBadge
+  FileBadge,
+  RefreshCw
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { Miembro, TipoMiembro, RolTutor } from '@/lib/types';
 import { QRCodeSVG } from 'qrcode.react';
 
 export default function MiembrosPage() {
-  const { miembros, agregarMiembro, editarMiembro, eliminarMiembro, compartirMiembro } = useApp();
+  const { miembros, agregarMiembro, editarMiembro, eliminarMiembro, compartirMiembro, sincronizarConNube } = useApp();
   
   // Modales
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingMiembro, setEditingMiembro] = useState<Miembro | null>(null);
   const [showShareModal, setShowShareModal] = useState<string | null>(null); // miembro_id
   const [showQRModal, setShowQRModal] = useState<string | null>(null);
+
+  // Sync Nube State
+  const [syncing, setSyncing] = useState(false);
+  const [syncDone, setSyncDone] = useState(false);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    await sincronizarConNube();
+    setSyncing(false);
+    setSyncDone(true);
+    setTimeout(() => setSyncDone(false), 2000);
+  };
 
   // Formulario nuevo integrante
   const [nombre, setNombre] = useState('');
@@ -172,12 +185,23 @@ export default function MiembrosPage() {
             Administra a los miembros de tu familia (padres, adultos, niños, mascotas) y comparte su gestión con otros tutores en tiempo real.
           </p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs px-5 py-3 rounded-2xl shadow-md transition-all shrink-0 active:scale-95"
-        >
-          <Plus className="w-4 h-4" /> Agregar Integrante
-        </button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs px-4 py-3 rounded-2xl transition-all active:scale-95"
+            title="Sincronizar cambios locales directamente con Supabase"
+          >
+            <RefreshCw className={`w-4 h-4 text-sky-600 ${syncing ? 'animate-spin' : ''}`} />
+            <span>{syncDone ? '¡Sincronizado!' : syncing ? 'Guardando...' : 'Sincronizar Nube'}</span>
+          </button>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs px-5 py-3 rounded-2xl shadow-md transition-all shrink-0 active:scale-95"
+          >
+            <Plus className="w-4 h-4" /> Agregar Integrante
+          </button>
+        </div>
       </div>
 
       {/* REJILLA DE MIEMBROS */}

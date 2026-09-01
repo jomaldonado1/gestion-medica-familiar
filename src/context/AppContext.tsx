@@ -33,6 +33,7 @@ interface AppContextType {
   agregarMiembro: (datos: Omit<Miembro, 'id' | 'creado_por' | 'qr_code_token' | 'created_at'>) => Promise<void>;
   editarMiembro: (id: string, datos: Partial<Miembro>) => Promise<void>;
   eliminarMiembro: (id: string) => Promise<void>;
+  sincronizarConNube: () => Promise<void>;
   
   // Médicos
   medicos: Medico[];
@@ -102,7 +103,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return [];
   };
 
-  // Escuchar sesión y cargar datos reales de Supabase
+  // Escuchar sesión y cargar datos reales de Supabase con Reconciliación Inteligente
   useEffect(() => {
     async function cargarDatosSupabase() {
       try {
@@ -138,18 +139,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             .select('miembro_id, rol, miembros(*)')
             .eq('user_id', authUser.id);
 
-          const mapaMiembros = new Map<string, Miembro>();
+          const mapaMiembrosDb = new Map<string, Miembro>();
 
           if (dbMiembrosCreados) {
             dbMiembrosCreados.forEach((m: any) => {
-              mapaMiembros.set(m.id, { ...m, rol_actual: 'propietario' });
+              mapaMiembrosDb.set(m.id, { ...m, rol_actual: 'propietario' });
             });
           }
 
           if (miembrosTutores) {
             miembrosTutores.forEach((mt: any) => {
               if (mt.miembros) {
-                mapaMiembros.set(mt.miembros.id, {
+                mapaMiembrosDb.set(mt.miembros.id, {
                   ...mt.miembros,
                   rol_actual: mt.rol
                 });
@@ -157,34 +158,101 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             });
           }
 
-          let listaMiembros = Array.from(mapaMiembros.values());
+          const listaMiembrosDb = Array.from(mapaMiembrosDb.values());
+          const cacheLocal = cargarCacheLocal(authUser.id);
 
-          // Deduplicar miembros por combinación de Nombre + Tipo (para limpiar cualquier duplicado antiguo de Supabase)
-          const mapaUnicos = new Map<string, Miembro>();
-          listaMiembros.forEach(m => {
-            const clave = `${m.nombre.toLowerCase().trim()}_${m.tipo}`;
-            if (!mapaUnicos.has(clave)) {
-              mapaUnicos.set(clave, m);
-            }
-          });
-          listaMiembros = Array.from(mapaUnicos.values());
+          if (cacheLocal && cacheLocal.length > 0) {
+            // RECONCILIACIÓN: Si el usuario modificó/eliminó localmente en su dispositivo,
+            // forzar a Supabase a adoptar la versión del usuario!
 
-          // Fallback a localStorage si Supabase retornó array vacío por problema de red/consola
-          if (listaMiembros.length === 0) {
-            const cache = cargarCacheLocal(authUser.id);
-            if (cache.length > 0) {
-              listaMiembros = cache;
+            // 1. Eliminar de Supabase los miembros que fueron borrados localmente por el usuario
+            const clavesCache = new Set(cacheLocal.map(m => (m.nombre.toLowerCase().trim() + '_' + m.tipo)));
+            for (const dbM of listaMiembrosDb) {
+              const claveDb = dbM.nombre.toLowerCase().trim() + '_' + dbM.tipo;
+              if (!clavesCache.has(claveDb) && dbM.creado_por === authUser.id) {
+                await supabase.from('miembro_tutores').delete().eq('miembro_id', dbM.id);
+                await supabase.from('miembros').delete().eq('id', dbM.id);
+              }
             }
+
+            // 2. Insertar o actualizar en Supabase los miembros corregidos/creados por el usuario
+            for (let i = 0; i < cacheLocal.length; i++) {
+              const cM = cacheLocal[i];
+              const claveCache = cM.nombre.toLowerCase().trim() + '_' + cM.tipo;
+
+              const dbMatch = listaMiembrosDb.find(dbM => 
+                dbM.id === cM.id || (dbM.nombre.toLowerCase().trim() + '_' + dbM.tipo) === claveCache
+              );
+
+              if (!dbMatch) {
+                // Nuevo integrante local -> Insertar en Supabase
+                const { data: inserted } = await supabase.from('miembros').insert({
+                  tipo: cM.tipo,
+                  nombre: cM.nombre,
+                  telefono: cM.telefono,
+                  dni: cM.dni,
+                  obra_social: cM.obra_social,
+                  nro_afiliado: cM.nro_afiliado,
+                  plan_obra_social: cM.plan_obra_social,
+                  fecha_nacimiento: cM.fecha_nacimiento,
+                  grupo_sanguineo: cM.grupo_sanguineo,
+                  especie_raza: cM.especie_raza,
+                  alergias: cM.alergias,
+                  contacto_emergencia_nombre: cM.contacto_emergencia_nombre,
+                  contacto_emergencia_telefono: cM.contacto_emergencia_telefono,
+                  observaciones: cM.observaciones,
+                  creado_por: authUser.id
+                }).select().single();
+
+                if (inserted) {
+                  cacheLocal[i].id = inserted.id;
+                  await supabase.from('miembro_tutores').insert({
+                    miembro_id: inserted.id,
+                    user_id: authUser.id,
+                    rol: 'propietario'
+                  });
+                }
+              } else {
+                // Integrante existente -> Sincronizar actualización en Supabase
+                cacheLocal[i].id = dbMatch.id; // Asignar UUID real de DB
+                const payload: Record<string, any> = {
+                  nombre: cM.nombre,
+                  tipo: cM.tipo,
+                  telefono: cM.telefono || null,
+                  dni: cM.dni || null,
+                  obra_social: cM.obra_social || null,
+                  nro_afiliado: cM.nro_afiliado || null,
+                  plan_obra_social: cM.plan_obra_social || null,
+                  fecha_nacimiento: cM.fecha_nacimiento || null,
+                  grupo_sanguineo: cM.grupo_sanguineo || null,
+                  especie_raza: cM.especie_raza || null,
+                  alergias: cM.alergias || null,
+                  contacto_emergencia_nombre: cM.contacto_emergencia_nombre || null,
+                  contacto_emergencia_telefono: cM.contacto_emergencia_telefono || null,
+                  observaciones: cM.observaciones || null
+                };
+                await supabase.from('miembros').update(payload).eq('id', dbMatch.id);
+              }
+            }
+
+            setMiembros(cacheLocal);
+            guardarCacheLocal(authUser.id, cacheLocal);
           } else {
-            guardarCacheLocal(authUser.id, listaMiembros);
+            // Si no había cacheLocal previa, usar lista de Supabase deduplicada
+            const mapaUnicos = new Map<string, Miembro>();
+            listaMiembrosDb.forEach(m => {
+              const clave = `${m.nombre.toLowerCase().trim()}_${m.tipo}`;
+              if (!mapaUnicos.has(clave)) {
+                mapaUnicos.set(clave, m);
+              }
+            });
+            const miembrosLimpios = Array.from(mapaUnicos.values());
+
+            setMiembros(miembrosLimpios);
+            guardarCacheLocal(authUser.id, miembrosLimpios);
           }
 
-          setMiembros(listaMiembros);
-          if (listaMiembros.length > 0) {
-            setMiembroActivoIdState(prev => prev || listaMiembros[0].id);
-          }
-
-          const idsMiembros = listaMiembros.map(m => m.id);
+          const idsMiembros = (cacheLocal.length > 0 ? cacheLocal : listaMiembrosDb).map(m => m.id);
 
           if (idsMiembros.length > 0) {
             // 3. Cargar Médicos
@@ -254,7 +322,50 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     router.refresh();
   };
 
-  // Agregar Integrante con reemplazo de ID temporal por UUID real de Supabase
+  const sincronizarConNube = async () => {
+    if (!user?.id) return;
+    guardarCacheLocal(user.id, miembros);
+    
+    for (const m of miembros) {
+      const payload: Record<string, any> = {
+        nombre: m.nombre,
+        tipo: m.tipo,
+        telefono: m.telefono || null,
+        dni: m.dni || null,
+        obra_social: m.obra_social || null,
+        nro_afiliado: m.nro_afiliado || null,
+        plan_obra_social: m.plan_obra_social || null,
+        fecha_nacimiento: m.fecha_nacimiento || null,
+        grupo_sanguineo: m.grupo_sanguineo || null,
+        especie_raza: m.especie_raza || null,
+        alergias: m.alergias || null,
+        contacto_emergencia_nombre: m.contacto_emergencia_nombre || null,
+        contacto_emergencia_telefono: m.contacto_emergencia_telefono || null,
+        observaciones: m.observaciones || null
+      };
+
+      if (m.id.startsWith('m-')) {
+        const { data: nuevo } = await supabase.from('miembros').insert({
+          ...payload,
+          creado_por: user.id
+        }).select().single();
+
+        if (nuevo) {
+          m.id = nuevo.id;
+          await supabase.from('miembro_tutores').insert({
+            miembro_id: nuevo.id,
+            user_id: user.id,
+            rol: 'propietario'
+          });
+        }
+      } else {
+        await supabase.from('miembros').update(payload).eq('id', m.id);
+      }
+    }
+    guardarCacheLocal(user.id, miembros);
+  };
+
+  // Agregar Integrante
   const agregarMiembro = async (datos: Omit<Miembro, 'id' | 'creado_por' | 'qr_code_token' | 'created_at'>) => {
     const tempId = `m-${Date.now()}`;
     const tempToken = `emergency-${datos.nombre.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
@@ -569,6 +680,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       agregarMiembro,
       editarMiembro,
       eliminarMiembro,
+      sincronizarConNube,
       medicos,
       agregarMedico,
       eliminarMedico,
