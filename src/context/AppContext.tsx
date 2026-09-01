@@ -34,6 +34,7 @@ interface AppContextType {
   editarMiembro: (id: string, datos: Partial<Miembro>) => Promise<void>;
   eliminarMiembro: (id: string) => Promise<void>;
   sincronizarConNube: () => Promise<void>;
+  limpiarDuplicadosSupabase: () => Promise<void>;
   
   // Médicos
   medicos: Medico[];
@@ -113,7 +114,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return [];
   };
 
-  // Escuchar sesión y cargar datos reales de Supabase con Reconciliación Completa
+  // Escuchar sesión y cargar datos reales de Supabase
   useEffect(() => {
     async function cargarDatosSupabase() {
       try {
@@ -174,78 +175,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           let listaFinalMiembros: Miembro[] = [];
 
           if (cacheLocalMiembros && cacheLocalMiembros.length > 0) {
-            // RECONCILIACIÓN DE MIEMBROS
-            const clavesCache = new Set(cacheLocalMiembros.map(m => (m.nombre.toLowerCase().trim() + '_' + m.tipo)));
-            for (const dbM of listaMiembrosDb) {
-              const claveDb = dbM.nombre.toLowerCase().trim() + '_' + dbM.tipo;
-              if (!clavesCache.has(claveDb) && dbM.creado_por === authUser.id) {
-                await supabase.from('miembro_tutores').delete().eq('miembro_id', dbM.id);
-                await supabase.from('miembros').delete().eq('id', dbM.id);
-              }
-            }
-
-            for (let i = 0; i < cacheLocalMiembros.length; i++) {
-              const cM = cacheLocalMiembros[i];
-              const claveCache = cM.nombre.toLowerCase().trim() + '_' + cM.tipo;
-
-              const dbMatch = listaMiembrosDb.find(dbM => 
-                dbM.id === cM.id || (dbM.nombre.toLowerCase().trim() + '_' + dbM.tipo) === claveCache
-              );
-
-              if (!dbMatch) {
-                const { data: inserted } = await supabase.from('miembros').insert({
-                  tipo: cM.tipo,
-                  nombre: cM.nombre,
-                  telefono: cM.telefono,
-                  dni: cM.dni,
-                  obra_social: cM.obra_social,
-                  nro_afiliado: cM.nro_afiliado,
-                  plan_obra_social: cM.plan_obra_social,
-                  fecha_nacimiento: cM.fecha_nacimiento,
-                  grupo_sanguineo: cM.grupo_sanguineo,
-                  especie_raza: cM.especie_raza,
-                  alergias: cM.alergias,
-                  contacto_emergencia_nombre: cM.contacto_emergencia_nombre,
-                  contacto_emergencia_telefono: cM.contacto_emergencia_telefono,
-                  observaciones: cM.observaciones,
-                  creado_por: authUser.id
-                }).select().single();
-
-                if (inserted) {
-                  cacheLocalMiembros[i].id = inserted.id;
-                  await supabase.from('miembro_tutores').insert({
-                    miembro_id: inserted.id,
-                    user_id: authUser.id,
-                    rol: 'propietario'
-                  });
-                }
-              } else {
-                cacheLocalMiembros[i].id = dbMatch.id;
-                const payload: Record<string, any> = {
-                  nombre: cM.nombre,
-                  tipo: cM.tipo,
-                  telefono: cM.telefono || null,
-                  dni: cM.dni || null,
-                  obra_social: cM.obra_social || null,
-                  nro_afiliado: cM.nro_afiliado || null,
-                  plan_obra_social: cM.plan_obra_social || null,
-                  fecha_nacimiento: cM.fecha_nacimiento || null,
-                  grupo_sanguineo: cM.grupo_sanguineo || null,
-                  especie_raza: cM.especie_raza || null,
-                  alergias: cM.alergias || null,
-                  contacto_emergencia_nombre: cM.contacto_emergencia_nombre || null,
-                  contacto_emergencia_telefono: cM.contacto_emergencia_telefono || null,
-                  observaciones: cM.observaciones || null
-                };
-                await supabase.from('miembros').update(payload).eq('id', dbMatch.id);
-              }
-            }
-
+            // Reconciliación: Usar la lista local del usuario que tiene sus eliminaciones/ediciones recientes
             listaFinalMiembros = cacheLocalMiembros;
           } else {
+            // Deduplicación por nombre básico
             const mapaUnicos = new Map<string, Miembro>();
             listaMiembrosDb.forEach(m => {
-              const clave = `${m.nombre.toLowerCase().trim()}_${m.tipo}`;
+              const clave = m.nombre.toLowerCase().trim();
               if (!mapaUnicos.has(clave)) {
                 mapaUnicos.set(clave, m);
               }
@@ -346,119 +282,65 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     router.refresh();
   };
 
-  const sincronizarConNube = async () => {
+  // Limpiar duplicados de Supabase y forzar estado actual en la nube
+  const limpiarDuplicadosSupabase = async () => {
     if (!user?.id) return;
 
-    // 1. Sincronizar Miembros
-    guardarCacheCompleto(user.id, { miembros });
-    for (const m of miembros) {
-      const payload: Record<string, any> = {
-        nombre: m.nombre,
-        tipo: m.tipo,
-        telefono: m.telefono || null,
-        dni: m.dni || null,
-        obra_social: m.obra_social || null,
-        nro_afiliado: m.nro_afiliado || null,
-        plan_obra_social: m.plan_obra_social || null,
-        fecha_nacimiento: m.fecha_nacimiento || null,
-        grupo_sanguineo: m.grupo_sanguineo || null,
-        especie_raza: m.especie_raza || null,
-        alergias: m.alergias || null,
-        contacto_emergencia_nombre: m.contacto_emergencia_nombre || null,
-        contacto_emergencia_telefono: m.contacto_emergencia_telefono || null,
-        observaciones: m.observaciones || null
-      };
+    try {
+      // 1. Borrar todas las tutorías y miembros antiguos creados por el usuario en Supabase
+      const { data: actuales } = await supabase
+        .from('miembros')
+        .select('id')
+        .eq('creado_por', user.id);
 
-      if (m.id.startsWith('m-')) {
-        const { data: nuevo } = await supabase.from('miembros').insert({
-          ...payload,
+      if (actuales && actuales.length > 0) {
+        for (const act of actuales) {
+          await supabase.from('miembro_tutores').delete().eq('miembro_id', act.id);
+          await supabase.from('miembros').delete().eq('id', act.id);
+        }
+      }
+
+      // 2. Re-insertar exactamente la lista actual de la pantalla en Supabase
+      for (let i = 0; i < miembros.length; i++) {
+        const m = miembros[i];
+        const { data: nuevo, error } = await supabase.from('miembros').insert({
+          tipo: m.tipo,
+          nombre: m.nombre,
+          telefono: m.telefono || null,
+          dni: m.dni || null,
+          obra_social: m.obra_social || null,
+          nro_afiliado: m.nro_afiliado || null,
+          plan_obra_social: m.plan_obra_social || null,
+          fecha_nacimiento: m.fecha_nacimiento || null,
+          grupo_sanguineo: m.grupo_sanguineo || null,
+          especie_raza: m.especie_raza || null,
+          alergias: m.alergias || null,
+          contacto_emergencia_nombre: m.contacto_emergencia_nombre || null,
+          contacto_emergencia_telefono: m.contacto_emergencia_telefono || null,
+          observaciones: m.observaciones || null,
           creado_por: user.id
         }).select().single();
 
-        if (nuevo) {
-          m.id = nuevo.id;
+        if (nuevo && !error) {
+          miembros[i].id = nuevo.id;
           await supabase.from('miembro_tutores').insert({
             miembro_id: nuevo.id,
             user_id: user.id,
             rol: 'propietario'
           });
         }
-      } else {
-        await supabase.from('miembros').update(payload).eq('id', m.id);
       }
-    }
 
-    // 2. Sincronizar Médicos
-    guardarCacheCompleto(user.id, { medicos });
-    for (const med of medicos) {
-      if (med.id.startsWith('med-')) {
-        const { data: inserted } = await supabase.from('medicos').insert({
-          miembro_id: med.miembro_id,
-          nombre: med.nombre,
-          especialidad: med.especialidad || null,
-          telefono: med.telefono || null,
-          centro_atencion: med.centro_atencion || null,
-          direccion: med.direccion || null,
-          observaciones: med.observaciones || null
-        }).select().single();
-        if (inserted) med.id = inserted.id;
-      }
+      setMiembros([...miembros]);
+      guardarCacheCompleto(user.id, { miembros, medicos, medicamentos, consultas, estudios });
+    } catch (e) {
+      console.error('Error en limpiarDuplicadosSupabase:', e);
     }
+  };
 
-    // 3. Sincronizar Medicamentos
-    guardarCacheCompleto(user.id, { medicamentos });
-    for (const farm of medicamentos) {
-      if (farm.id.startsWith('farm-')) {
-        const { data: inserted } = await supabase.from('medicamentos').insert({
-          miembro_id: farm.miembro_id,
-          nombre: farm.nombre,
-          droga_componente: farm.droga_componente || null,
-          dosis: farm.dosis || null,
-          frecuencia: farm.frecuencia || null,
-          horario: farm.horario || null,
-          activo: farm.activo,
-          observaciones: farm.observaciones || null
-        }).select().single();
-        if (inserted) farm.id = inserted.id;
-      }
-    }
-
-    // 4. Sincronizar Consultas
-    guardarCacheCompleto(user.id, { consultas });
-    for (const cons of consultas) {
-      if (cons.id.startsWith('cons-')) {
-        const medicoIdClean = (cons.medico_id && !cons.medico_id.startsWith('med-')) ? cons.medico_id : null;
-        const { data: inserted } = await supabase.from('consultas').insert({
-          miembro_id: cons.miembro_id,
-          medico_id: medicoIdClean,
-          motivo: cons.motivo,
-          fecha_visita_anterior: cons.fecha_visita_anterior || null,
-          fecha_proxima_visita: cons.fecha_proxima_visita || null,
-          estado: cons.estado || 'programada',
-          observaciones: cons.observaciones || null
-        }).select().single();
-        if (inserted) cons.id = inserted.id;
-      }
-    }
-
-    // 5. Sincronizar Estudios
-    guardarCacheCompleto(user.id, { estudios });
-    for (const est of estudios) {
-      if (est.id.startsWith('est-')) {
-        const { data: inserted } = await supabase.from('estudios').insert({
-          miembro_id: est.miembro_id,
-          titulo: est.titulo,
-          tipo_estudio: est.tipo_estudio,
-          fecha: est.fecha || new Date().toISOString().split('T')[0],
-          archivo_url: est.archivo_url || null,
-          archivo_nombre: est.archivo_nombre || null,
-          observaciones: est.observaciones || null
-        }).select().single();
-        if (inserted) est.id = inserted.id;
-      }
-    }
-
-    guardarCacheCompleto(user.id, { miembros, medicos, medicamentos, consultas, estudios });
+  const sincronizarConNube = async () => {
+    if (!user?.id) return;
+    await limpiarDuplicadosSupabase();
   };
 
   // Agregar Integrante
@@ -556,16 +438,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (datos.observaciones !== undefined) payload.observaciones = datos.observaciones;
 
         if (Object.keys(payload).length > 0) {
-          const { error } = await supabase.from('miembros').update(payload).eq('id', id);
+          await supabase.from('miembros').update(payload).eq('id', id);
 
-          if (error || id.startsWith('m-')) {
-            if (targetOld?.nombre) {
-              await supabase
-                .from('miembros')
-                .update(payload)
-                .eq('creado_por', user.id)
-                .ilike('nombre', targetOld.nombre.trim());
-            }
+          if (targetOld?.nombre) {
+            await supabase
+              .from('miembros')
+              .update(payload)
+              .eq('creado_por', user.id)
+              .ilike('nombre', targetOld.nombre.trim());
           }
         }
       }
@@ -905,6 +785,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       editarMiembro,
       eliminarMiembro,
       sincronizarConNube,
+      limpiarDuplicadosSupabase,
       medicos,
       agregarMedico,
       eliminarMedico,

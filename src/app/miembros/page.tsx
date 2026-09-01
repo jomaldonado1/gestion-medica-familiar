@@ -25,7 +25,7 @@ import { Miembro, TipoMiembro, RolTutor } from '@/lib/types';
 import { QRCodeSVG } from 'qrcode.react';
 
 export default function MiembrosPage() {
-  const { miembros, agregarMiembro, editarMiembro, eliminarMiembro, compartirMiembro, sincronizarConNube } = useApp();
+  const { miembros, agregarMiembro, editarMiembro, eliminarMiembro, compartirMiembro, sincronizarConNube, limpiarDuplicadosSupabase } = useApp();
   
   // Modales
   const [showAddModal, setShowAddModal] = useState(false);
@@ -39,10 +39,10 @@ export default function MiembrosPage() {
 
   const handleSync = async () => {
     setSyncing(true);
-    await sincronizarConNube();
+    await limpiarDuplicadosSupabase();
     setSyncing(false);
     setSyncDone(true);
-    setTimeout(() => setSyncDone(false), 2000);
+    setTimeout(() => setSyncDone(false), 2500);
   };
 
   // Formulario nuevo integrante
