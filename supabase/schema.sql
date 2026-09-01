@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS public.miembros (
     creado_por UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
     tipo TEXT NOT NULL CHECK (tipo IN ('Adulto Mayor / Padre', 'Yo / Adulto', 'Hijo / Menor', 'Mascota')),
     nombre TEXT NOT NULL,
+    telefono TEXT,
     dni TEXT,
     obra_social TEXT,
     nro_afiliado TEXT,
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS public.miembros (
 );
 
 -- Alter table migrations para bases de datos existentes
+ALTER TABLE public.miembros ADD COLUMN IF NOT EXISTS telefono TEXT;
 ALTER TABLE public.miembros ADD COLUMN IF NOT EXISTS dni TEXT;
 ALTER TABLE public.miembros ADD COLUMN IF NOT EXISTS obra_social TEXT;
 ALTER TABLE public.miembros ADD COLUMN IF NOT EXISTS nro_afiliado TEXT;

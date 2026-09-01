@@ -35,6 +35,7 @@ export default function MiembrosPage() {
   // Formulario nuevo integrante
   const [nombre, setNombre] = useState('');
   const [tipo, setTipo] = useState<TipoMiembro>('Yo / Adulto');
+  const [telefono, setTelefono] = useState('');
   const [dni, setDni] = useState('');
   const [obraSocial, setObraSocial] = useState('');
   const [nroAfiliado, setNroAfiliado] = useState('');
@@ -50,6 +51,7 @@ export default function MiembrosPage() {
   // Formulario editar integrante
   const [editNombre, setEditNombre] = useState('');
   const [editTipo, setEditTipo] = useState<TipoMiembro>('Yo / Adulto');
+  const [editTelefono, setEditTelefono] = useState('');
   const [editDni, setEditDni] = useState('');
   const [editObraSocial, setEditObraSocial] = useState('');
   const [editNroAfiliado, setEditNroAfiliado] = useState('');
@@ -74,6 +76,7 @@ export default function MiembrosPage() {
     agregarMiembro({
       nombre,
       tipo,
+      telefono: telefono || null,
       dni: dni || null,
       obra_social: obraSocial || null,
       nro_afiliado: nroAfiliado || null,
@@ -89,6 +92,7 @@ export default function MiembrosPage() {
 
     // Reset
     setNombre('');
+    setTelefono('');
     setDni('');
     setObraSocial('');
     setNroAfiliado('');
@@ -105,6 +109,7 @@ export default function MiembrosPage() {
     setEditingMiembro(m);
     setEditNombre(m.nombre);
     setEditTipo(m.tipo);
+    setEditTelefono(m.telefono || '');
     setEditDni(m.dni || '');
     setEditObraSocial(m.obra_social || '');
     setEditNroAfiliado(m.nro_afiliado || '');
@@ -125,6 +130,7 @@ export default function MiembrosPage() {
     editarMiembro(editingMiembro.id, {
       nombre: editNombre,
       tipo: editTipo,
+      telefono: editTelefono || null,
       dni: editDni || null,
       obra_social: editObraSocial || null,
       nro_afiliado: editNroAfiliado || null,
@@ -227,6 +233,12 @@ export default function MiembrosPage() {
                   {m.fecha_nacimiento && ` • Nac: ${m.fecha_nacimiento}`}
                 </p>
 
+                {m.telefono && (
+                  <p className="text-xs text-sky-700 font-semibold mt-1 flex items-center gap-1">
+                    <PhoneCall className="w-3.5 h-3.5 text-sky-600" /> Celular: {m.telefono}
+                  </p>
+                )}
+
                 {/* Obra Social / Cobertura médica */}
                 {(m.obra_social || m.nro_afiliado) && (
                   <div className="mt-3 p-2.5 bg-teal-50 border border-teal-200/80 rounded-xl text-xs text-teal-950">
@@ -316,15 +328,26 @@ export default function MiembrosPage() {
                 </select>
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Nombre Completo *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Carmen González"
+                  value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold text-slate-800"
+                />
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Nombre Completo *</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Teléfono / Celular de {nombre || 'Integrante'}</label>
                   <input
-                    type="text"
-                    required
-                    placeholder="Ej: Carmen González"
-                    value={nombre}
-                    onChange={(e) => setNombre(e.target.value)}
+                    type="tel"
+                    placeholder="Ej: +54 9 11 9876-5432"
+                    value={telefono}
+                    onChange={(e) => setTelefono(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold text-slate-800"
                   />
                 </div>
@@ -520,14 +543,25 @@ export default function MiembrosPage() {
                 </select>
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Nombre Completo *</label>
+                <input
+                  type="text"
+                  required
+                  value={editNombre}
+                  onChange={(e) => setEditNombre(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold text-slate-800"
+                />
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Nombre Completo *</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Teléfono / Celular del Integrante</label>
                   <input
-                    type="text"
-                    required
-                    value={editNombre}
-                    onChange={(e) => setEditNombre(e.target.value)}
+                    type="tel"
+                    placeholder="Ej: +54 9 11 9876-5432"
+                    value={editTelefono}
+                    onChange={(e) => setEditTelefono(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl p-2.5 text-xs font-semibold text-slate-800"
                   />
                 </div>

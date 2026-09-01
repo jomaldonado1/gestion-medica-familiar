@@ -264,6 +264,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const { data, error } = await supabase.from('miembros').insert({
           tipo: datos.tipo,
           nombre: datos.nombre,
+          telefono: datos.telefono,
           dni: datos.dni,
           obra_social: datos.obra_social,
           nro_afiliado: datos.nro_afiliado,

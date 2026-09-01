@@ -14,9 +14,17 @@ import {
   AlertTriangle, 
   Clock, 
   PhoneCall,
-  ChevronRight
+  ChevronRight,
+  ExternalLink,
+  Download,
+  MessageSquare
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
+import { 
+  generarGoogleCalendarUrl, 
+  descargarArchivoICS, 
+  generarWhatsAppUrl 
+} from '@/lib/calendarUtils';
 
 export default function DashboardPage() {
   const { 
@@ -235,37 +243,96 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-3">
               {proximasConsultas.map((cons) => {
+                const medicoObj = medicos.find(m => m.id === cons.medico_id);
                 const fechaObj = cons.fecha_proxima_visita ? new Date(cons.fecha_proxima_visita) : null;
                 const diasRestantes = fechaObj 
                   ? Math.ceil((fechaObj.getTime() - Date.now()) / (1000 * 3600 * 24))
                   : null;
 
+                const datosCal = fechaObj ? {
+                  motivo: cons.motivo,
+                  pacienteNombre: miembroActivo.nombre,
+                  medicoNombre: cons.medico_nombre || medicoObj?.nombre,
+                  centroAtencion: medicoObj?.centro_atencion || undefined,
+                  direccion: medicoObj?.direccion || undefined,
+                  fechaProximaVisita: cons.fecha_proxima_visita!,
+                  observaciones: cons.observaciones
+                } : null;
+
                 return (
                   <div
                     key={cons.id}
-                    className="p-3.5 rounded-2xl bg-amber-50/50 border border-amber-200/80 flex items-start justify-between gap-3"
+                    className="p-4 rounded-2xl bg-amber-50/50 border border-amber-200/80 space-y-3"
                   >
-                    <div>
-                      <span className="inline-block text-[10px] font-extrabold uppercase bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md mb-1">
-                        {diasRestantes !== null && diasRestantes === 0
-                          ? '¡Hoy!'
-                          : diasRestantes === 1
-                          ? 'Mañana'
-                          : `En ${diasRestantes} días`}
-                      </span>
-                      <h3 className="text-sm font-bold text-slate-900 leading-tight">{cons.motivo}</h3>
-                      {cons.medico_nombre && (
-                        <p className="text-xs text-slate-600 mt-0.5">Doctor/a: {cons.medico_nombre}</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <span className="inline-block text-[10px] font-extrabold uppercase bg-amber-100 text-amber-900 px-2 py-0.5 rounded-md mb-1">
+                          {diasRestantes !== null && diasRestantes === 0
+                            ? '¡Hoy!'
+                            : diasRestantes === 1
+                            ? 'Mañana'
+                            : `En ${diasRestantes} días`}
+                        </span>
+                        <h3 className="text-sm font-bold text-slate-900 leading-tight">{cons.motivo}</h3>
+                        {cons.medico_nombre && (
+                          <p className="text-xs text-slate-600 mt-0.5">Doctor/a: {cons.medico_nombre}</p>
+                        )}
+                      </div>
+                      {fechaObj && (
+                        <div className="text-right shrink-0">
+                          <p className="text-xs font-extrabold text-amber-800">
+                            {fechaObj.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}
+                          </p>
+                          <p className="text-[11px] font-semibold text-slate-500">
+                            {fechaObj.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs
+                          </p>
+                        </div>
                       )}
                     </div>
-                    {fechaObj && (
-                      <div className="text-right shrink-0">
-                        <p className="text-xs font-extrabold text-amber-800">
-                          {fechaObj.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' })}
-                        </p>
-                        <p className="text-[11px] font-semibold text-slate-500">
-                          {fechaObj.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs
-                        </p>
+
+                    {/* Botones de acción rápida: Sincronización y WhatsApp */}
+                    {datosCal && (
+                      <div className="pt-2 border-t border-amber-200/50 flex flex-wrap items-center justify-between gap-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <a
+                            href={generarGoogleCalendarUrl(datosCal)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 bg-white hover:bg-sky-50 text-sky-700 text-[11px] font-bold px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs"
+                            title="Añadir a Google Calendar"
+                          >
+                            <ExternalLink className="w-3 h-3 text-sky-600" /> GCal
+                          </a>
+                          <button
+                            onClick={() => descargarArchivoICS(datosCal)}
+                            className="inline-flex items-center gap-1 bg-white hover:bg-slate-100 text-slate-700 text-[11px] font-bold px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs"
+                            title="Descargar archivo .ics universal para iPhone/Android/Outlook"
+                          >
+                            <Download className="w-3 h-3 text-slate-600" /> .ICS
+                          </button>
+                        </div>
+
+                        {/* WhatsApp paciente o urgencia */}
+                        {(miembroActivo.telefono || miembroActivo.contacto_emergencia_telefono) && (
+                          <a
+                            href={generarWhatsAppUrl({
+                              telefono: miembroActivo.telefono || miembroActivo.contacto_emergencia_telefono!,
+                              pacienteNombre: miembroActivo.nombre,
+                              medicoNombre: cons.medico_nombre || medicoObj?.nombre,
+                              especialidad: medicoObj?.especialidad || undefined,
+                              motivo: cons.motivo,
+                              fechaHoraIso: cons.fecha_proxima_visita!,
+                              lugar: medicoObj?.centro_atencion || undefined,
+                              tipoRecordatorio: miembroActivo.telefono ? 'paciente' : 'emergencia'
+                            })}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg shadow-2xs active:scale-95"
+                            title="Recordatorio 1-Clic por WhatsApp"
+                          >
+                            <MessageSquare className="w-3 h-3" /> WhatsApp
+                          </a>
+                        )}
                       </div>
                     )}
                   </div>

@@ -22,6 +22,7 @@ export interface Miembro {
   creado_por: string;
   tipo: TipoMiembro;
   nombre: string;
+  telefono?: string | null;
   dni?: string | null;
   obra_social?: string | null;
   nro_afiliado?: string | null;
