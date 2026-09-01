@@ -61,7 +61,7 @@ interface AppContextType {
   // Tutores
   compartirMiembro: (miembroId: string, emailTutor: string, rol: RolTutor) => Promise<boolean>;
 
-  // Ficha pública de emergencia por token QR (soporta consulta anónima a Supabase)
+  // Ficha pública de emergencia por token QR
   obtenerFichaEmergenciaPorToken: (token: string) => Promise<{
     miembro: Miembro | null;
     medicamentosActivos: Medicamento[];
@@ -114,7 +114,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return [];
   };
 
-  // Escuchar sesión y cargar datos reales de Supabase
+  // Escuchar sesión y cargar datos reales de Supabase (Single Source of Truth)
   useEffect(() => {
     async function cargarDatosSupabase() {
       try {
@@ -170,21 +170,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           }
 
           const listaMiembrosDb = Array.from(mapaMiembrosDb.values());
-          const cacheLocalMiembros = cargarCacheModulo<Miembro>(authUser.id, 'miembros');
-
           let listaFinalMiembros: Miembro[] = [];
 
-          if (cacheLocalMiembros && cacheLocalMiembros.length > 0) {
-            listaFinalMiembros = cacheLocalMiembros;
-          } else {
+          // REGLA CLAVE MULTIDISPOSITIVO: La base de datos de Supabase es la fuente de verdad cuando hay conexión
+          if (listaMiembrosDb && listaMiembrosDb.length > 0) {
             const mapaUnicos = new Map<string, Miembro>();
             listaMiembrosDb.forEach(m => {
-              const clave = m.nombre.toLowerCase().trim();
+              const clave = `${m.nombre.toLowerCase().trim()}_${m.tipo}`;
               if (!mapaUnicos.has(clave)) {
                 mapaUnicos.set(clave, m);
               }
             });
             listaFinalMiembros = Array.from(mapaUnicos.values());
+          } else {
+            // Fallback a localStorage solo si Supabase no retornó datos (modo offline)
+            const cacheLocalMiembros = cargarCacheModulo<Miembro>(authUser.id, 'miembros');
+            if (cacheLocalMiembros && cacheLocalMiembros.length > 0) {
+              listaFinalMiembros = cacheLocalMiembros;
+            }
           }
 
           setMiembros(listaFinalMiembros);
@@ -317,7 +320,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           creado_por: user.id
         };
 
-        // Preservar token QR existente si no es temporal
         if (m.qr_code_token && !m.qr_code_token.startsWith('emergency-')) {
           payloadInsert.qr_code_token = m.qr_code_token;
         }
@@ -768,15 +770,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return true;
   };
 
-  // Obtener Ficha de Emergencia pública por token QR (soporta consulta anónima a Supabase)
+  // Obtener Ficha de Emergencia pública por token QR
   const obtenerFichaEmergenciaPorToken = async (token: string): Promise<{
     miembro: Miembro | null;
     medicamentosActivos: Medicamento[];
   }> => {
-    // 1. Buscar primero en memoria si existe
     let m = miembros.find(item => item.qr_code_token === token) || null;
 
-    // 2. Si no está en memoria (ej: escaneo público de QR desde celular o usuario no logueado), consultar Supabase directamente
     if (!m && token) {
       try {
         const { data: dbMiembro, error } = await supabase
@@ -793,7 +793,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (!m) return { miembro: null, medicamentosActivos: [] };
 
-    // 3. Buscar medicamentos activos
     let medsActivos = medicamentos.filter(med => med.miembro_id === m!.id && med.activo);
 
     if (medsActivos.length === 0 && m.id) {
