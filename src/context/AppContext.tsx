@@ -308,19 +308,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Editar Integrante
   const editarMiembro = async (id: string, datos: Partial<Miembro>) => {
+    // 1. Actualizar estado local de inmediato
     setMiembros(prev => {
       const actualizados = prev.map(m => m.id === id ? { ...m, ...datos } : m);
       if (user?.id) guardarCacheLocal(user.id, actualizados);
       return actualizados;
     });
 
+    // 2. Desinfectar objeto para Supabase (solo enviar columnas validas de la tabla miembros)
     try {
-      await supabase.from('miembros').update(datos).eq('id', id);
-    } catch (e) {}
+      if (user?.id) {
+        const payload: Record<string, any> = {};
+        if (datos.nombre !== undefined) payload.nombre = datos.nombre;
+        if (datos.tipo !== undefined) payload.tipo = datos.tipo;
+        if (datos.telefono !== undefined) payload.telefono = datos.telefono;
+        if (datos.dni !== undefined) payload.dni = datos.dni;
+        if (datos.obra_social !== undefined) payload.obra_social = datos.obra_social;
+        if (datos.nro_afiliado !== undefined) payload.nro_afiliado = datos.nro_afiliado;
+        if (datos.plan_obra_social !== undefined) payload.plan_obra_social = datos.plan_obra_social;
+        if (datos.fecha_nacimiento !== undefined) payload.fecha_nacimiento = datos.fecha_nacimiento;
+        if (datos.grupo_sanguineo !== undefined) payload.grupo_sanguineo = datos.grupo_sanguineo;
+        if (datos.especie_raza !== undefined) payload.especie_raza = datos.especie_raza;
+        if (datos.alergias !== undefined) payload.alergias = datos.alergias;
+        if (datos.contacto_emergencia_nombre !== undefined) payload.contacto_emergencia_nombre = datos.contacto_emergencia_nombre;
+        if (datos.contacto_emergencia_telefono !== undefined) payload.contacto_emergencia_telefono = datos.contacto_emergencia_telefono;
+        if (datos.observaciones !== undefined) payload.observaciones = datos.observaciones;
+
+        if (Object.keys(payload).length > 0) {
+          const { error } = await supabase.from('miembros').update(payload).eq('id', id);
+          if (error) {
+            console.error('Error al actualizar en Supabase:', error.message);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Error en editarMiembro:', e);
+    }
   };
 
   // Eliminar Integrante
   const eliminarMiembro = async (id: string) => {
+    // 1. Actualizar estado local de inmediato
     setMiembros(prev => {
       const actualizados = prev.filter(m => m.id !== id);
       if (user?.id) guardarCacheLocal(user.id, actualizados);
@@ -329,12 +357,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (miembroActivoId === id) {
       const restante = miembros.find(m => m.id !== id);
-      if (restante) setMiembroActivoIdState(restante.id);
+      if (restante) setMiembroActivoIdState(restante ? restante.id : '');
     }
 
+    // 2. Persistir eliminación en Supabase
     try {
-      await supabase.from('miembros').delete().eq('id', id);
-    } catch (e) {}
+      if (user?.id) {
+        await supabase.from('miembro_tutores').delete().eq('miembro_id', id);
+        const { error } = await supabase.from('miembros').delete().eq('id', id);
+        if (error) {
+          console.error('Error al eliminar en Supabase:', error.message);
+        }
+      }
+    } catch (e) {
+      console.error('Error en eliminarMiembro:', e);
+    }
   };
 
   // Médicos
