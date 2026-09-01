@@ -171,10 +171,11 @@ export function Header() {
           {user && (
             <button
               onClick={cerrarSesion}
-              className="md:hidden flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs p-2 rounded-xl border border-slate-200"
+              className="flex items-center gap-1.5 bg-slate-100 hover:bg-red-50 hover:text-red-700 hover:border-red-200 text-slate-700 font-bold text-xs px-3 py-2 rounded-xl border border-slate-200 transition-all active:scale-95 shrink-0"
               title="Cerrar Sesión"
             >
               <LogOut className="w-4 h-4 text-red-600" />
+              <span className="hidden sm:inline">Cerrar Sesión</span>
             </button>
           )}
         </div>
@@ -182,8 +183,8 @@ export function Header() {
 
       {/* MODAL DE CÓDIGO QR DE EMERGENCIA */}
       {showQRModal && miembroActivo && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl relative my-auto max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
+        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-start justify-center p-4 pt-10 sm:pt-16 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-5 shadow-2xl relative animate-in fade-in zoom-in duration-200 mb-10">
             <button
               onClick={() => setShowQRModal(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-700 p-1 rounded-full bg-slate-100 z-10"
