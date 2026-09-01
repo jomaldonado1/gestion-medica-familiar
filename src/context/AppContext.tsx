@@ -61,11 +61,11 @@ interface AppContextType {
   // Tutores
   compartirMiembro: (miembroId: string, emailTutor: string, rol: RolTutor) => Promise<boolean>;
 
-  // Ficha pública
-  obtenerFichaEmergenciaPorToken: (token: string) => {
+  // Ficha pública de emergencia por token QR (soporta consulta anónima a Supabase)
+  obtenerFichaEmergenciaPorToken: (token: string) => Promise<{
     miembro: Miembro | null;
     medicamentosActivos: Medicamento[];
-  };
+  }>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -175,10 +175,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           let listaFinalMiembros: Miembro[] = [];
 
           if (cacheLocalMiembros && cacheLocalMiembros.length > 0) {
-            // Reconciliación: Usar la lista local del usuario que tiene sus eliminaciones/ediciones recientes
             listaFinalMiembros = cacheLocalMiembros;
           } else {
-            // Deduplicación por nombre básico
             const mapaUnicos = new Map<string, Miembro>();
             listaMiembrosDb.forEach(m => {
               const clave = m.nombre.toLowerCase().trim();
@@ -282,12 +280,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     router.refresh();
   };
 
-  // Limpiar duplicados de Supabase y forzar estado actual en la nube
+  // Limpiar duplicados de Supabase conservando qr_code_token constante
   const limpiarDuplicadosSupabase = async () => {
     if (!user?.id) return;
 
     try {
-      // 1. Borrar todas las tutorías y miembros antiguos creados por el usuario en Supabase
       const { data: actuales } = await supabase
         .from('miembros')
         .select('id')
@@ -300,10 +297,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
 
-      // 2. Re-insertar exactamente la lista actual de la pantalla en Supabase
       for (let i = 0; i < miembros.length; i++) {
         const m = miembros[i];
-        const { data: nuevo, error } = await supabase.from('miembros').insert({
+        const payloadInsert: Record<string, any> = {
           tipo: m.tipo,
           nombre: m.nombre,
           telefono: m.telefono || null,
@@ -319,10 +315,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           contacto_emergencia_telefono: m.contacto_emergencia_telefono || null,
           observaciones: m.observaciones || null,
           creado_por: user.id
-        }).select().single();
+        };
+
+        // Preservar token QR existente si no es temporal
+        if (m.qr_code_token && !m.qr_code_token.startsWith('emergency-')) {
+          payloadInsert.qr_code_token = m.qr_code_token;
+        }
+
+        const { data: nuevo, error } = await supabase.from('miembros').insert(payloadInsert).select().single();
 
         if (nuevo && !error) {
           miembros[i].id = nuevo.id;
+          miembros[i].qr_code_token = nuevo.qr_code_token;
           await supabase.from('miembro_tutores').insert({
             miembro_id: nuevo.id,
             user_id: user.id,
@@ -764,12 +768,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return true;
   };
 
-  // Obtener Ficha de Emergencia pública por token QR
-  const obtenerFichaEmergenciaPorToken = (token: string) => {
-    const m = miembros.find(item => item.qr_code_token === token) || null;
+  // Obtener Ficha de Emergencia pública por token QR (soporta consulta anónima a Supabase)
+  const obtenerFichaEmergenciaPorToken = async (token: string): Promise<{
+    miembro: Miembro | null;
+    medicamentosActivos: Medicamento[];
+  }> => {
+    // 1. Buscar primero en memoria si existe
+    let m = miembros.find(item => item.qr_code_token === token) || null;
+
+    // 2. Si no está en memoria (ej: escaneo público de QR desde celular o usuario no logueado), consultar Supabase directamente
+    if (!m && token) {
+      try {
+        const { data: dbMiembro, error } = await supabase
+          .from('miembros')
+          .select('*')
+          .eq('qr_code_token', token)
+          .single();
+
+        if (dbMiembro && !error) {
+          m = dbMiembro as Miembro;
+        }
+      } catch (e) {}
+    }
+
     if (!m) return { miembro: null, medicamentosActivos: [] };
 
-    const medsActivos = medicamentos.filter(med => med.miembro_id === m.id && med.activo);
+    // 3. Buscar medicamentos activos
+    let medsActivos = medicamentos.filter(med => med.miembro_id === m!.id && med.activo);
+
+    if (medsActivos.length === 0 && m.id) {
+      try {
+        const { data: dbMeds } = await supabase
+          .from('medicamentos')
+          .select('*')
+          .eq('miembro_id', m.id)
+          .eq('activo', true);
+
+        if (dbMeds) medsActivos = dbMeds as Medicamento[];
+      } catch (e) {}
+    }
+
     return { miembro: m, medicamentosActivos: medsActivos };
   };
 

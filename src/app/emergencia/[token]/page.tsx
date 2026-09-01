@@ -15,22 +15,45 @@ import {
 import { useApp } from '@/context/AppContext';
 import { Miembro, Medicamento } from '@/lib/types';
 
-export default function FichaEmergenciaPublicaPage({ params }: { params: { token: string } }) {
+export default function FichaEmergenciaPublicaPage({ params }: { params: Promise<{ token: string }> | { token: string } }) {
   const { obtenerFichaEmergenciaPorToken } = useApp();
   const [datos, setDatos] = useState<{ miembro: Miembro | null; medicamentosActivos: Medicamento[] }>({
     miembro: null,
     medicamentosActivos: []
   });
+  const [cargando, setCargando] = useState(true);
   const [copiado, setCopiado] = useState(false);
 
   useEffect(() => {
-    if (params.token) {
-      const res = obtenerFichaEmergenciaPorToken(params.token);
-      setDatos(res);
+    async function cargarFicha() {
+      try {
+        const resolvedParams = await Promise.resolve(params);
+        const token = resolvedParams?.token;
+
+        if (token) {
+          const res = await obtenerFichaEmergenciaPorToken(token);
+          setDatos(res);
+        }
+      } catch (e) {
+        console.error('Error cargando ficha SOS:', e);
+      } finally {
+        setCargando(false);
+      }
     }
-  }, [params.token, obtenerFichaEmergenciaPorToken]);
+
+    cargarFicha();
+  }, [params, obtenerFichaEmergenciaPorToken]);
 
   const { miembro, medicamentosActivos } = datos;
+
+  if (cargando) {
+    return (
+      <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 text-center">
+        <HeartPulse className="w-16 h-16 text-red-500 mb-4 animate-spin" />
+        <h1 className="text-xl font-bold text-slate-200">Cargando Ficha SOS de Emergencia...</h1>
+      </div>
+    );
+  }
 
   if (!miembro) {
     return (

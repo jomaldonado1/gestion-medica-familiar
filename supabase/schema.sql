@@ -251,9 +251,8 @@ DROP POLICY IF EXISTS "Tutores pueden ver medicos" ON public.medicos;
 DROP POLICY IF EXISTS "Editores pueden gestionar medicos" ON public.medicos;
 CREATE POLICY "Permitir todo en medicos" ON public.medicos FOR ALL USING (auth.role() = 'authenticated');
 
-DROP POLICY IF EXISTS "Tutores pueden ver medicamentos" ON public.medicamentos;
-DROP POLICY IF EXISTS "Editores pueden gestionar medicamentos" ON public.medicamentos;
-CREATE POLICY "Permitir todo en medicamentos" ON public.medicamentos FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Permitir lectura en medicamentos" ON public.medicamentos FOR SELECT USING (true);
+CREATE POLICY "Permitir gestion a usuarios autenticados en medicamentos" ON public.medicamentos FOR ALL USING (auth.role() = 'authenticated');
 
 DROP POLICY IF EXISTS "Tutores pueden ver consultas" ON public.consultas;
 DROP POLICY IF EXISTS "Editores pueden gestionar consultas" ON public.consultas;
