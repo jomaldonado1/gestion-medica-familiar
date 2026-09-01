@@ -159,6 +159,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
           let listaMiembros = Array.from(mapaMiembros.values());
 
+          // Deduplicar miembros por combinación de Nombre + Tipo (para limpiar cualquier duplicado antiguo de Supabase)
+          const mapaUnicos = new Map<string, Miembro>();
+          listaMiembros.forEach(m => {
+            const clave = `${m.nombre.toLowerCase().trim()}_${m.tipo}`;
+            if (!mapaUnicos.has(clave)) {
+              mapaUnicos.set(clave, m);
+            }
+          });
+          listaMiembros = Array.from(mapaUnicos.values());
+
           // Fallback a localStorage si Supabase retornó array vacío por problema de red/consola
           if (listaMiembros.length === 0) {
             const cache = cargarCacheLocal(authUser.id);
@@ -244,7 +254,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     router.refresh();
   };
 
-  // Agregar Integrante con persistencia garantizada
+  // Agregar Integrante con reemplazo de ID temporal por UUID real de Supabase
   const agregarMiembro = async (datos: Omit<Miembro, 'id' | 'creado_por' | 'qr_code_token' | 'created_at'>) => {
     const tempId = `m-${Date.now()}`;
     const tempToken = `emergency-${datos.nombre.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
@@ -258,7 +268,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       rol_actual: 'propietario'
     };
 
-    // Persistir en Supabase primero
+    // 1. Mostrar de inmediato en UI
+    setMiembros(prev => {
+      const actualizados = [...prev, nuevoMiembro];
+      if (user?.id) guardarCacheLocal(user.id, actualizados);
+      return actualizados;
+    });
+    setMiembroActivoIdState(tempId);
+
+    // 2. Persistir en Supabase y actualizar con el UUID real devuelto
     try {
       if (user?.id) {
         const { data, error } = await supabase.from('miembros').insert({
@@ -280,12 +298,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }).select().single();
 
         if (data && !error) {
-          nuevoMiembro = {
+          const realMiembro: Miembro = {
             ...data,
             rol_actual: 'propietario'
           };
 
-          // Asegurar registro de tutor
+          // Reemplazar tempId por el UUID real en el estado local y en localStorage
+          setMiembros(prev => {
+            const reemplazados = prev.map(m => m.id === tempId ? realMiembro : m);
+            if (user?.id) guardarCacheLocal(user.id, reemplazados);
+            return reemplazados;
+          });
+          setMiembroActivoIdState(realMiembro.id);
+
+          // Registrar tutor propietario
           await supabase.from('miembro_tutores').insert({
             miembro_id: data.id,
             user_id: user.id,
@@ -294,20 +320,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (e) {
-      console.log('Error insertando en Supabase, utilizando cache local:', e);
+      console.log('Error insertando en Supabase, manteniendo copia local:', e);
     }
-
-    setMiembros(prev => {
-      const actualizados = [...prev.filter(m => m.id !== nuevoMiembro.id), nuevoMiembro];
-      if (user?.id) guardarCacheLocal(user.id, actualizados);
-      return actualizados;
-    });
-
-    setMiembroActivoIdState(nuevoMiembro.id);
   };
 
-  // Editar Integrante
+  // Editar Integrante con desinfectado de payload y coincidencia por ID y nombre
   const editarMiembro = async (id: string, datos: Partial<Miembro>) => {
+    const targetOld = miembros.find(m => m.id === id);
+
     // 1. Actualizar estado local de inmediato
     setMiembros(prev => {
       const actualizados = prev.map(m => m.id === id ? { ...m, ...datos } : m);
@@ -335,9 +355,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (datos.observaciones !== undefined) payload.observaciones = datos.observaciones;
 
         if (Object.keys(payload).length > 0) {
+          // Intentar por ID de Supabase primero
           const { error } = await supabase.from('miembros').update(payload).eq('id', id);
-          if (error) {
-            console.error('Error al actualizar en Supabase:', error.message);
+
+          // Si el ID era local (m-...) o hubo desfasaje, actualizar por nombre e id de usuario
+          if (error || id.startsWith('m-')) {
+            if (targetOld?.nombre) {
+              await supabase
+                .from('miembros')
+                .update(payload)
+                .eq('creado_por', user.id)
+                .ilike('nombre', targetOld.nombre.trim());
+            }
           }
         }
       }
@@ -346,8 +375,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Eliminar Integrante
+  // Eliminar Integrante con borrado de duplicados e IDs temporales en Supabase
   const eliminarMiembro = async (id: string) => {
+    const target = miembros.find(m => m.id === id);
+
     // 1. Actualizar estado local de inmediato
     setMiembros(prev => {
       const actualizados = prev.filter(m => m.id !== id);
@@ -363,10 +394,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // 2. Persistir eliminación en Supabase
     try {
       if (user?.id) {
+        // Borrar por ID exacto
         await supabase.from('miembro_tutores').delete().eq('miembro_id', id);
-        const { error } = await supabase.from('miembros').delete().eq('id', id);
-        if (error) {
-          console.error('Error al eliminar en Supabase:', error.message);
+        await supabase.from('miembros').delete().eq('id', id);
+
+        // Si el integrante tiene un nombre, eliminar cualquier duplicado en Supabase con el mismo nombre para este usuario
+        if (target?.nombre) {
+          const { data: dupes } = await supabase
+            .from('miembros')
+            .select('id')
+            .eq('creado_por', user.id)
+            .ilike('nombre', target.nombre.trim());
+
+          if (dupes && dupes.length > 0) {
+            for (const d of dupes) {
+              await supabase.from('miembro_tutores').delete().eq('miembro_id', d.id);
+              await supabase.from('miembros').delete().eq('id', d.id);
+            }
+          }
         }
       }
     } catch (e) {
