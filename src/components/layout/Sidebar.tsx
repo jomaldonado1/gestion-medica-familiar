@@ -19,6 +19,7 @@ import {
   LogOut
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
+import { PWAInstallButton } from '@/components/pwa/PWAInstallButton';
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -57,7 +58,7 @@ export function Sidebar() {
       </div>
 
       {/* Member Selector Widget in Sidebar */}
-      <div className="mb-6 bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
+      <div className="mb-4 bg-slate-50 p-3 rounded-2xl border border-slate-200/80">
         <div className="flex items-center justify-between mb-2 px-1">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Integrante Activo</span>
           <Link href="/miembros" className="text-xs text-sky-600 font-semibold hover:underline flex items-center gap-0.5">
@@ -99,6 +100,11 @@ export function Sidebar() {
             })}
           </div>
         )}
+      </div>
+
+      {/* Botón PWA de Instalación en Sidebar */}
+      <div className="mb-4">
+        <PWAInstallButton variant="sidebar" />
       </div>
 
       {/* Primary Navigation */}

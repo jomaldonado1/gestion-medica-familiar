@@ -3,9 +3,11 @@
 import React from 'react';
 import { usePathname } from 'next/navigation';
 import { AppProvider } from '@/context/AppContext';
+import { PWAProvider } from '@/context/PWAContext';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 import { BottomNav } from './BottomNav';
+import { PWAInstallBanner } from '@/components/pwa/PWAInstallBanner';
 
 function LayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -37,6 +39,9 @@ function LayoutShell({ children }: { children: React.ReactNode }) {
 
       {/* Mobile Navigation Bar */}
       <BottomNav />
+
+      {/* Aviso flotante sutil PWA */}
+      <PWAInstallBanner />
     </div>
   );
 }
@@ -44,7 +49,9 @@ function LayoutShell({ children }: { children: React.ReactNode }) {
 export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <AppProvider>
-      <LayoutShell>{children}</LayoutShell>
+      <PWAProvider>
+        <LayoutShell>{children}</LayoutShell>
+      </PWAProvider>
     </AppProvider>
   );
 }

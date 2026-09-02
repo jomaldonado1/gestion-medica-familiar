@@ -17,6 +17,7 @@ import {
   LogOut
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
+import { PWAInstallButton } from '@/components/pwa/PWAInstallButton';
 import { QRCodeSVG } from 'qrcode.react';
 
 export function Header() {
@@ -113,8 +114,10 @@ export function Header() {
             )}
           </div>
 
-          {/* Action Buttons: Emergency QR Button & Logout */}
+          {/* Action Buttons: PWA Install, Emergency QR Button & Logout */}
           <div className="flex items-center gap-2">
+            <PWAInstallButton variant="header" />
+
             {miembroActivo && (
               <button
                 onClick={() => setShowQRModal(true)}
@@ -139,7 +142,7 @@ export function Header() {
           </div>
         </div>
 
-        {/* Mobile Full-Width Active Member Selector Bar */}
+        {/* Mobile Full-Width Active Member Selector Bar & PWA Action */}
         <div className="md:hidden mt-2 relative">
           <button
             onClick={() => setShowMemberDropdown(!showMemberDropdown)}
@@ -189,7 +192,8 @@ export function Header() {
                   );
                 })
               )}
-              <div className="border-t border-slate-100 mt-1.5 pt-1.5 px-2">
+              <div className="border-t border-slate-100 mt-1.5 pt-1.5 px-2 space-y-1">
+                <PWAInstallButton variant="mobile" />
                 <Link
                   href="/miembros"
                   onClick={() => setShowMemberDropdown(false)}
