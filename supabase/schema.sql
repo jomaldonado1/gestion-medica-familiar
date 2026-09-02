@@ -249,18 +249,36 @@ CREATE POLICY "Permitir todo a tutores en miembro_tutores"
 -- 4. POLÍTICAS PARA MEDICOS, MEDICAMENTOS, CONSULTAS Y ESTUDIOS
 DROP POLICY IF EXISTS "Tutores pueden ver medicos" ON public.medicos;
 DROP POLICY IF EXISTS "Editores pueden gestionar medicos" ON public.medicos;
-CREATE POLICY "Permitir todo en medicos" ON public.medicos FOR ALL USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Permitir todo en medicos" ON public.medicos;
+DROP POLICY IF EXISTS "Permitir todo a autenticados en medicos" ON public.medicos;
+CREATE POLICY "Permitir todo a autenticados en medicos" 
+    ON public.medicos FOR ALL TO authenticated 
+    USING (true) WITH CHECK (true);
 
-CREATE POLICY "Permitir lectura en medicamentos" ON public.medicamentos FOR SELECT USING (true);
-CREATE POLICY "Permitir gestion a usuarios autenticados en medicamentos" ON public.medicamentos FOR ALL USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Tutores pueden ver medicamentos" ON public.medicamentos;
+DROP POLICY IF EXISTS "Editores pueden gestionar medicamentos" ON public.medicamentos;
+DROP POLICY IF EXISTS "Permitir lectura en medicamentos" ON public.medicamentos;
+DROP POLICY IF EXISTS "Permitir gestion a usuarios autenticados en medicamentos" ON public.medicamentos;
+DROP POLICY IF EXISTS "Permitir todo a autenticados en medicamentos" ON public.medicamentos;
+CREATE POLICY "Permitir todo a autenticados en medicamentos" 
+    ON public.medicamentos FOR ALL TO authenticated 
+    USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Tutores pueden ver consultas" ON public.consultas;
 DROP POLICY IF EXISTS "Editores pueden gestionar consultas" ON public.consultas;
-CREATE POLICY "Permitir todo en consultas" ON public.consultas FOR ALL USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Permitir todo en consultas" ON public.consultas;
+DROP POLICY IF EXISTS "Permitir todo a autenticados en consultas" ON public.consultas;
+CREATE POLICY "Permitir todo a autenticados en consultas" 
+    ON public.consultas FOR ALL TO authenticated 
+    USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Tutores pueden ver estudios" ON public.estudios;
 DROP POLICY IF EXISTS "Editores pueden gestionar estudios" ON public.estudios;
-CREATE POLICY "Permitir todo en estudios" ON public.estudios FOR ALL USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Permitir todo en estudios" ON public.estudios;
+DROP POLICY IF EXISTS "Permitir todo a autenticados en estudios" ON public.estudios;
+CREATE POLICY "Permitir todo a autenticados en estudios" 
+    ON public.estudios FOR ALL TO authenticated 
+    USING (true) WITH CHECK (true);
 
 -- ====================================================================
 -- BUCKETS DE STORAGE (CONFIGURACIÓN DE ARCHIVOS)

@@ -177,7 +177,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      // Auto-limpieza y auto-restauración de LANA si es necesario
+      // Auto-limpieza de duplicados o erratas conocidas
       if (dbMiembrosCreados && dbMiembrosCreados.length > 0) {
         const dupesMariaEva = dbMiembrosCreados.filter(m => m.nombre.toLowerCase().trim().includes('maria eva carranza'));
         if (dupesMariaEva.length > 1) {
@@ -194,26 +194,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           await supabase.from('miembros').update({ nombre: 'ANTONIO MALDONADO' }).eq('id', antonioErrata.id);
           const mObj = mapaMiembrosDb.get(antonioErrata.id);
           if (mObj) mObj.nombre = 'ANTONIO MALDONADO';
-        }
-      }
-
-      const tieneLana = Array.from(mapaMiembrosDb.values()).some(m => m.nombre.toLowerCase().trim().includes('lana'));
-      if (!tieneLana && authUser.id) {
-        const { data: insertedLana } = await supabase.from('miembros').insert({
-          tipo: 'Mascota',
-          nombre: 'LANA',
-          especie_raza: 'Mascota Familiar',
-          creado_por: authUser.id
-        }).select().single();
-
-        if (insertedLana) {
-          const mNuevo = { ...insertedLana, rol_actual: 'propietario' } as Miembro;
-          mapaMiembrosDb.set(insertedLana.id, mNuevo);
-          await supabase.from('miembro_tutores').insert({
-            miembro_id: insertedLana.id,
-            user_id: authUser.id,
-            rol: 'propietario'
-          });
         }
       }
 
@@ -379,7 +359,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const { data, error } = await supabase.from('miembros').insert({
+    const payload: Record<string, any> = {
       tipo: datos.tipo,
       nombre: datos.nombre,
       telefono: datos.telefono || null,
@@ -395,7 +375,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       contacto_emergencia_telefono: datos.contacto_emergencia_telefono || null,
       observaciones: datos.observaciones || null,
       creado_por: user.id
-    }).select().single();
+    };
+
+    let { data, error } = await supabase.from('miembros').insert(payload).select().single();
+
+    // Fallback si la base de datos no tiene aún las columnas nuevas ('dni', 'telefono', 'obra_social', etc.) o la caché del esquema no se ha refrescado
+    if (error && (error.message.includes('schema cache') || error.message.includes('column'))) {
+      console.warn('Reintentando inserción sin campos extendidos opcionales por falta de columna en BD Supabase:', error.message);
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.dni;
+      delete fallbackPayload.telefono;
+      delete fallbackPayload.obra_social;
+      delete fallbackPayload.nro_afiliado;
+      delete fallbackPayload.plan_obra_social;
+
+      const res = await supabase.from('miembros').insert(fallbackPayload).select().single();
+      data = res.data;
+      error = res.error;
+    }
 
     if (error) {
       console.error('Error insertando integrante en Supabase:', error);
@@ -422,6 +419,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Actualización inmediata en el estado local
+    setMiembros(prev => prev.map(m => m.id === id ? { ...m, ...datos } : m));
+
     const payload: Record<string, any> = {};
     if (datos.nombre !== undefined) payload.nombre = datos.nombre;
     if (datos.tipo !== undefined) payload.tipo = datos.tipo;
@@ -438,7 +438,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (datos.contacto_emergencia_telefono !== undefined) payload.contacto_emergencia_telefono = datos.contacto_emergencia_telefono;
     if (datos.observaciones !== undefined) payload.observaciones = datos.observaciones;
 
-    const { error } = await supabase.from('miembros').update(payload).eq('id', id);
+    let { error } = await supabase.from('miembros').update(payload).eq('id', id);
+
+    if (error && (error.message.includes('schema cache') || error.message.includes('column'))) {
+      console.warn('Reintentando actualización sin campos extendidos opcionales:', error.message);
+      const fallbackPayload = { ...payload };
+      delete fallbackPayload.dni;
+      delete fallbackPayload.telefono;
+      delete fallbackPayload.obra_social;
+      delete fallbackPayload.nro_afiliado;
+      delete fallbackPayload.plan_obra_social;
+
+      if (Object.keys(fallbackPayload).length > 0) {
+        const res = await supabase.from('miembros').update(fallbackPayload).eq('id', id);
+        error = res.error;
+      } else {
+        error = null;
+      }
+    }
 
     if (error) {
       console.error('Error actualizando integrante en Supabase:', error);
@@ -456,12 +473,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    // Actualización inmediata del estado local y del miembro activo si fue eliminado
+    setMiembros(prev => {
+      const filtrados = prev.filter(m => m.id !== id);
+      if (miembroActivoId === id && filtrados.length > 0) {
+        setMiembroActivoIdState(filtrados[0].id);
+      }
+      return filtrados;
+    });
+
     await supabase.from('miembro_tutores').delete().eq('miembro_id', id);
     const { error } = await supabase.from('miembros').delete().eq('id', id);
 
     if (error) {
       console.error('Error eliminando integrante en Supabase:', error);
       alert(`No se pudo eliminar el integrante de la nube: ${error.message}`);
+      await cargarDatosSupabase();
       return;
     }
 

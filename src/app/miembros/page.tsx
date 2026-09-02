@@ -82,11 +82,18 @@ export default function MiembrosPage() {
   const [tutorRol, setTutorRol] = useState<RolTutor>('editor');
   const [shareSuccessMsg, setShareSuccessMsg] = useState(false);
 
-  const handleCrearMiembro = (e: React.FormEvent) => {
+  // Toast de notificación
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const mostrarToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 3500);
+  };
+
+  const handleCrearMiembro = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!nombre.trim()) return;
 
-    agregarMiembro({
+    await agregarMiembro({
       nombre,
       tipo,
       telefono: telefono || null,
@@ -116,6 +123,7 @@ export default function MiembrosPage() {
     setContactoTelefono('');
     setObservaciones('');
     setShowAddModal(false);
+    mostrarToast('¡Integrante creado con éxito!');
   };
 
   const abrirModalEditar = (m: Miembro) => {
@@ -136,11 +144,11 @@ export default function MiembrosPage() {
     setEditObservaciones(m.observaciones || '');
   };
 
-  const handleGuardarEdicion = (e: React.FormEvent) => {
+  const handleGuardarEdicion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingMiembro || !editNombre.trim()) return;
 
-    editarMiembro(editingMiembro.id, {
+    await editarMiembro(editingMiembro.id, {
       nombre: editNombre,
       tipo: editTipo,
       telefono: editTelefono || null,
@@ -158,6 +166,16 @@ export default function MiembrosPage() {
     });
 
     setEditingMiembro(null);
+    mostrarToast('¡Los cambios fueron aplicados correctamente!');
+  };
+
+  const handleEliminar = async (m: Miembro) => {
+    if (!window.confirm(`¿Estás seguro de que deseas eliminar a "${m.nombre}"? esta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    await eliminarMiembro(m.id);
+    mostrarToast(`"${m.nombre}" fue eliminado correctamente.`);
   };
 
   const handleCompartirTutor = async (e: React.FormEvent) => {
@@ -311,7 +329,7 @@ export default function MiembrosPage() {
                 </button>
 
                 <button
-                  onClick={() => eliminarMiembro(m.id)}
+                  onClick={() => handleEliminar(m)}
                   className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors"
                   title="Eliminar registro"
                 >
@@ -859,6 +877,14 @@ export default function MiembrosPage() {
               );
             })()}
           </div>
+        </div>
+      )}
+
+      {/* TOAST DE NOTIFICACIÓN FLOTANTE */}
+      {toastMsg && (
+        <div className="fixed bottom-6 right-6 bg-slate-900 text-white px-5 py-3.5 rounded-2xl shadow-2xl z-50 flex items-center gap-3 border border-slate-700 animate-in fade-in slide-in-from-bottom-5">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+          <span className="text-xs sm:text-sm font-bold">{toastMsg}</span>
         </div>
       )}
     </div>
