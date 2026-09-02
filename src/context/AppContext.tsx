@@ -177,23 +177,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      // Auto-limpieza de duplicados o erratas conocidas
+      // Auto-limpieza de duplicados o erratas conocidas en Supabase
       if (dbMiembrosCreados && dbMiembrosCreados.length > 0) {
-        const dupesMariaEva = dbMiembrosCreados.filter(m => m.nombre.toLowerCase().trim().includes('maria eva carranza'));
-        if (dupesMariaEva.length > 1) {
-          const dupeABorrar = dupesMariaEva.find(m => m.tipo === 'Yo / Adulto');
-          if (dupeABorrar) {
-            await supabase.from('miembro_tutores').delete().eq('miembro_id', dupeABorrar.id);
-            await supabase.from('miembros').delete().eq('id', dupeABorrar.id);
-            mapaMiembrosDb.delete(dupeABorrar.id);
-          }
-        }
+        const porNombre = new Map<string, any[]>();
+        dbMiembrosCreados.forEach(m => {
+          const key = m.nombre.toLowerCase().trim();
+          if (!porNombre.has(key)) porNombre.set(key, []);
+          porNombre.get(key)!.push(m);
+        });
 
-        const antonioErrata = dbMiembrosCreados.find(m => m.nombre.toLowerCase().trim().includes('maldoando'));
-        if (antonioErrata) {
-          await supabase.from('miembros').update({ nombre: 'ANTONIO MALDONADO' }).eq('id', antonioErrata.id);
-          const mObj = mapaMiembrosDb.get(antonioErrata.id);
-          if (mObj) mObj.nombre = 'ANTONIO MALDONADO';
+        for (const [_, grupo] of porNombre.entries()) {
+          if (grupo.length > 1) {
+            grupo.sort((a, b) => new Date(b.updated_at || b.created_at).getTime() - new Date(a.updated_at || a.created_at).getTime());
+            const dupesABorrar = grupo.slice(1);
+            for (const dupe of dupesABorrar) {
+              await supabase.from('miembro_tutores').delete().eq('miembro_id', dupe.id);
+              await supabase.from('miembros').delete().eq('id', dupe.id);
+              mapaMiembrosDb.delete(dupe.id);
+            }
+          }
         }
       }
 
@@ -203,10 +205,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (listaMiembrosDb && listaMiembrosDb.length > 0) {
         const mapaUnicos = new Map<string, Miembro>();
         listaMiembrosDb.forEach(m => {
-          const clave = m.nombre.toLowerCase().trim();
-          if (!mapaUnicos.has(clave)) {
-            mapaUnicos.set(clave, m);
-          }
+          mapaUnicos.set(m.id, m);
         });
         listaFinalMiembros = Array.from(mapaUnicos.values());
       } else {
@@ -422,7 +421,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // Actualización inmediata en el estado local
     setMiembros(prev => prev.map(m => m.id === id ? { ...m, ...datos } : m));
 
-    const payload: Record<string, any> = {};
+    const payload: Record<string, any> = {
+      updated_at: new Date().toISOString()
+    };
     if (datos.nombre !== undefined) payload.nombre = datos.nombre;
     if (datos.tipo !== undefined) payload.tipo = datos.tipo;
     if (datos.telefono !== undefined) payload.telefono = datos.telefono;
@@ -438,7 +439,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (datos.contacto_emergencia_telefono !== undefined) payload.contacto_emergencia_telefono = datos.contacto_emergencia_telefono;
     if (datos.observaciones !== undefined) payload.observaciones = datos.observaciones;
 
-    let { error } = await supabase.from('miembros').update(payload).eq('id', id);
+    let { data, error } = await supabase.from('miembros').update(payload).eq('id', id).select();
 
     if (error && (error.message.includes('schema cache') || error.message.includes('column'))) {
       console.warn('Reintentando actualización sin campos extendidos opcionales:', error.message);
@@ -450,8 +451,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       delete fallbackPayload.plan_obra_social;
 
       if (Object.keys(fallbackPayload).length > 0) {
-        const res = await supabase.from('miembros').update(fallbackPayload).eq('id', id);
+        const res = await supabase.from('miembros').update(fallbackPayload).eq('id', id).select();
         error = res.error;
+        data = res.data;
       } else {
         error = null;
       }

@@ -217,24 +217,21 @@ CREATE POLICY "Los usuarios pueden actualizar su propio perfil"
 DROP POLICY IF EXISTS "Tutores pueden ver sus miembros" ON public.miembros;
 DROP POLICY IF EXISTS "Acceso público por QR token" ON public.miembros;
 DROP POLICY IF EXISTS "Usuarios autenticados pueden crear miembros" ON public.miembros;
+DROP POLICY IF EXISTS "Usuarios autenticados pueden insertar miembros" ON public.miembros;
 DROP POLICY IF EXISTS "Propietarios y Editores pueden actualizar miembros" ON public.miembros;
+DROP POLICY IF EXISTS "Usuarios autenticados pueden actualizar miembros" ON public.miembros;
 DROP POLICY IF EXISTS "Solo Propietarios pueden eliminar miembros" ON public.miembros;
+DROP POLICY IF EXISTS "Usuarios autenticados pueden eliminar miembros" ON public.miembros;
+DROP POLICY IF EXISTS "Acceso a miembros por tutores o QR publico" ON public.miembros;
+DROP POLICY IF EXISTS "Permitir todo a autenticados en miembros" ON public.miembros;
 
-CREATE POLICY "Acceso a miembros por tutores o QR publico" 
-    ON public.miembros FOR SELECT 
-    USING (creado_por = auth.uid() OR public.is_tutor_of(id) OR auth.role() = 'anon' OR auth.role() = 'authenticated');
+CREATE POLICY "Permitir todo a autenticados en miembros" 
+    ON public.miembros FOR ALL TO authenticated 
+    USING (true) WITH CHECK (true);
 
-CREATE POLICY "Usuarios autenticados pueden insertar miembros" 
-    ON public.miembros FOR INSERT 
-    WITH CHECK (auth.role() = 'authenticated');
-
-CREATE POLICY "Usuarios autenticados pueden actualizar miembros" 
-    ON public.miembros FOR UPDATE 
-    USING (auth.role() = 'authenticated');
-
-CREATE POLICY "Usuarios autenticados pueden eliminar miembros" 
-    ON public.miembros FOR DELETE 
-    USING (auth.role() = 'authenticated');
+CREATE POLICY "Acceso público por QR token" 
+    ON public.miembros FOR SELECT TO anon 
+    USING (true);
 
 
 -- 3. POLÍTICAS PARA MIEMBRO_TUTORES
