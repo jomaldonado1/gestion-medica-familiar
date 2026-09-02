@@ -6,6 +6,10 @@ export const metadata: Metadata = {
   title: 'MedFamiliar - Gestión Médica y Salud Familiar Integral PWA',
   description: 'Aplicación web progresiva responsiva para la gestión unificada de historiales médicos, tratamientos, turnos, vacunas y fichas de emergencia SOS de toda la familia.',
   manifest: '/manifest.json',
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/apple-touch-icon.png',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
