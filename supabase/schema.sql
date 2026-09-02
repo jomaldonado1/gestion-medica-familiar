@@ -12,21 +12,49 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     email TEXT NOT NULL,
     nombre_completo TEXT,
     telefono TEXT,
-    rol TEXT NOT NULL DEFAULT 'user' CHECK (rol IN ('user', 'admin')),
+    rol TEXT NOT NULL DEFAULT 'cliente' CHECK (rol IN ('cliente', 'superadmin', 'user', 'admin')),
+    plan_nombre TEXT NOT NULL DEFAULT 'prueba' CHECK (plan_nombre IN ('prueba', 'singular', 'familia', 'tribu')),
+    max_integrantes INTEGER NOT NULL DEFAULT 1,
+    fecha_alta TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
+    plan_expira TIMESTAMPTZ NOT NULL DEFAULT (timezone('utc'::text, now()) + INTERVAL '90 days'),
+    estado_suscripcion TEXT NOT NULL DEFAULT 'activo' CHECK (estado_suscripcion IN ('activo', 'vencido', 'pausado')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+
+-- Migraciones seguras IF NOT EXISTS para bases de datos existentes
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS rol TEXT DEFAULT 'cliente';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS plan_nombre TEXT DEFAULT 'prueba';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS max_integrantes INTEGER DEFAULT 1;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS fecha_alta TIMESTAMPTZ DEFAULT timezone('utc'::text, now());
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS plan_expira TIMESTAMPTZ DEFAULT (timezone('utc'::text, now()) + INTERVAL '90 days');
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS estado_suscripcion TEXT DEFAULT 'activo';
 
 -- Trigger para crear perfil automáticamente al registrarse un usuario en auth.users
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-    INSERT INTO public.profiles (id, email, nombre_completo, rol)
+    INSERT INTO public.profiles (
+        id, 
+        email, 
+        nombre_completo, 
+        rol,
+        plan_nombre,
+        max_integrantes,
+        fecha_alta,
+        plan_expira,
+        estado_suscripcion
+    )
     VALUES (
         NEW.id,
         NEW.email,
         COALESCE(NEW.raw_user_meta_data->>'full_name', SPLIT_PART(NEW.email, '@', 1)),
-        'user'
+        'cliente',
+        'prueba',
+        1,
+        timezone('utc'::text, now()),
+        timezone('utc'::text, now()) + INTERVAL '90 days',
+        'activo'
     )
     ON CONFLICT (id) DO NOTHING;
     RETURN NEW;
@@ -192,6 +220,17 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
+CREATE OR REPLACE FUNCTION public.is_superadmin()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.profiles 
+        WHERE id = auth.uid() AND (rol = 'superadmin' OR rol = 'admin')
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
 -- ====================================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES PERMISIVAS Y GARANTIZADAS
 -- ====================================================================
@@ -206,12 +245,14 @@ ALTER TABLE public.estudios ENABLE ROW LEVEL SECURITY;
 
 -- 1. POLÍTICAS PARA PROFILES
 DROP POLICY IF EXISTS "Los usuarios pueden ver su propio perfil" ON public.profiles;
-CREATE POLICY "Los usuarios pueden ver su propio perfil" 
-    ON public.profiles FOR SELECT USING (auth.uid() = id OR rol = 'admin');
+DROP POLICY IF EXISTS "Los usuarios o admin pueden ver perfiles" ON public.profiles;
+CREATE POLICY "Los usuarios o admin pueden ver perfiles" 
+    ON public.profiles FOR SELECT USING (auth.uid() = id OR public.is_superadmin());
 
 DROP POLICY IF EXISTS "Los usuarios pueden actualizar su propio perfil" ON public.profiles;
-CREATE POLICY "Los usuarios pueden actualizar su propio perfil" 
-    ON public.profiles FOR UPDATE USING (auth.uid() = id);
+DROP POLICY IF EXISTS "Los usuarios o admin pueden actualizar perfil" ON public.profiles;
+CREATE POLICY "Los usuarios o admin pueden actualizar perfil" 
+    ON public.profiles FOR UPDATE USING (auth.uid() = id OR public.is_superadmin());
 
 -- 2. POLÍTICAS PARA MIEMBROS
 DROP POLICY IF EXISTS "Tutores pueden ver sus miembros" ON public.miembros;

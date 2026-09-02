@@ -20,6 +20,7 @@ import {
   INITIAL_ESTUDIOS 
 } from '@/lib/mockData';
 import { createClient } from '@/lib/supabase/client';
+import { PricingModal } from '@/components/pricing/PricingModal';
 
 interface AppContextType {
   user: PerfilUser | null;
@@ -60,6 +61,10 @@ interface AppContextType {
   // Tutores
   compartirMiembro: (miembroId: string, emailTutor: string, rol: RolTutor) => Promise<boolean>;
 
+  // Suscripción & Modal de Precios
+  showPricingModal: boolean;
+  setShowPricingModal: (show: boolean) => void;
+
   // Ficha pública de emergencia por token QR
   obtenerFichaEmergenciaPorToken: (token: string) => Promise<{
     miembro: Miembro | null;
@@ -83,6 +88,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [medicamentos, setMedicamentos] = useState<Medicamento[]>(INITIAL_MEDICAMENTOS);
   const [consultas, setConsultas] = useState<Consulta[]>(INITIAL_CONSULTAS);
   const [estudios, setEstudios] = useState<Estudio[]>(INITIAL_ESTUDIOS);
+
+  // Modal de Precios / Mejorar Plan
+  const [showPricingModal, setShowPricingModal] = useState(false);
 
   // Guardar cache local de respaldo para soporte offline
   const guardarCacheCompleto = (usrId: string, data: {
@@ -136,13 +144,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .eq('id', authUser.id)
         .single();
 
-      const currentProfile: PerfilUser = perfilData ? (perfilData as PerfilUser) : {
+      const nowIso = new Date().toISOString();
+      const expiraDefaultIso = new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
+
+      const currentProfile: PerfilUser = perfilData ? {
+        id: perfilData.id,
+        email: perfilData.email || authUser.email || '',
+        nombre_completo: perfilData.nombre_completo || authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'Usuario',
+        telefono: perfilData.telefono || null,
+        rol: perfilData.rol || 'cliente',
+        plan_nombre: perfilData.plan_nombre || 'prueba',
+        max_integrantes: perfilData.max_integrantes ?? 1,
+        fecha_alta: perfilData.fecha_alta || perfilData.created_at || nowIso,
+        plan_expira: perfilData.plan_expira || expiraDefaultIso,
+        estado_suscripcion: perfilData.estado_suscripcion || 'activo',
+        created_at: perfilData.created_at || nowIso
+      } : {
         id: authUser.id,
         email: authUser.email || '',
         nombre_completo: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'Usuario',
         telefono: null,
-        rol: 'user',
-        created_at: new Date().toISOString()
+        rol: 'cliente',
+        plan_nombre: 'prueba',
+        max_integrantes: 1,
+        fecha_alta: nowIso,
+        plan_expira: expiraDefaultIso,
+        estado_suscripcion: 'activo',
+        created_at: nowIso
       };
 
       setUser(currentProfile);
@@ -355,6 +383,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const agregarMiembro = async (datos: Omit<Miembro, 'id' | 'creado_por' | 'qr_code_token' | 'created_at'>) => {
     if (!user?.id) {
       alert('Debes iniciar sesión para agregar integrantes.');
+      return;
+    }
+
+    // 1. Validar expiración de plan
+    const expiraMs = new Date(user.plan_expira || 0).getTime();
+    const esPlanIlimitado = user.plan_nombre === 'tribu' || (user.max_integrantes && user.max_integrantes >= 999);
+    
+    if (!esPlanIlimitado && expiraMs > 0 && expiraMs < Date.now()) {
+      alert(`Tu plan "${(user.plan_nombre || 'prueba').toUpperCase()}" venció el ${new Date(user.plan_expira).toLocaleDateString()}. Por favor actualiza tu plan para agregar integrantes.`);
+      setShowPricingModal(true);
+      return;
+    }
+
+    // 2. Validar cupo máximo de integrantes de la cuenta
+    const maxCupo = user.max_integrantes ?? 1;
+    if (!esPlanIlimitado && miembros.length >= maxCupo) {
+      alert(`Has alcanzado el límite de ${maxCupo} integrante(s) en tu plan actual ("${(user.plan_nombre || 'prueba').toUpperCase()}"). ¡Mejora tu plan para registrar más integrantes!`);
+      setShowPricingModal(true);
       return;
     }
 
@@ -792,9 +838,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       agregarEstudio,
       eliminarEstudio,
       compartirMiembro,
+      showPricingModal,
+      setShowPricingModal,
       obtenerFichaEmergenciaPorToken
     }}>
       {children}
+      <PricingModal
+        isOpen={showPricingModal}
+        onClose={() => setShowPricingModal(false)}
+        userEmail={user?.email}
+        currentPlan={user?.plan_nombre}
+      />
     </AppContext.Provider>
   );
 }

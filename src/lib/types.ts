@@ -6,7 +6,11 @@ export type TipoMiembro =
 
 export type RolTutor = 'propietario' | 'editor' | 'lector';
 
-export type RolUsuario = 'user' | 'admin';
+export type RolUsuario = 'cliente' | 'superadmin' | 'user' | 'admin';
+
+export type PlanNombre = 'prueba' | 'singular' | 'familia' | 'tribu';
+
+export type EstadoSuscripcion = 'activo' | 'vencido' | 'pausado';
 
 export interface PerfilUser {
   id: string;
@@ -14,6 +18,11 @@ export interface PerfilUser {
   nombre_completo: string | null;
   telefono: string | null;
   rol: RolUsuario;
+  plan_nombre: PlanNombre;
+  max_integrantes: number;
+  fecha_alta: string;
+  plan_expira: string;
+  estado_suscripcion: EstadoSuscripcion;
   created_at: string;
 }
 

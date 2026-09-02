@@ -14,7 +14,9 @@ import {
   X,
   PhoneCall,
   Plus,
-  LogOut
+  LogOut,
+  Sparkles,
+  ShieldCheck
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { PWAInstallButton } from '@/components/pwa/PWAInstallButton';
@@ -22,7 +24,7 @@ import { QRCodeSVG } from 'qrcode.react';
 
 export function Header() {
   const pathname = usePathname();
-  const { user, cerrarSesion, miembros, miembroActivo, setMiembroActivoId, consultas } = useApp();
+  const { user, cerrarSesion, miembros, miembroActivo, setMiembroActivoId, consultas, setShowPricingModal } = useApp();
   const [showQRModal, setShowQRModal] = useState(false);
   const [showMemberDropdown, setShowMemberDropdown] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -194,6 +196,15 @@ export function Header() {
               )}
               <div className="border-t border-slate-100 mt-1.5 pt-1.5 px-2 space-y-1">
                 <PWAInstallButton variant="mobile" />
+                <button
+                  onClick={() => {
+                    setShowMemberDropdown(false);
+                    setShowPricingModal(true);
+                  }}
+                  className="w-full flex items-center gap-2 text-xs font-extrabold text-amber-900 bg-gradient-to-r from-amber-200 to-amber-300 hover:from-amber-300 hover:to-amber-400 p-2 rounded-xl transition-colors border border-amber-400/40"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-700 fill-amber-700" /> ⭐ Mejorar Plan (Plan {user?.plan_nombre || 'Prueba'})
+                </button>
                 <Link
                   href="/miembros"
                   onClick={() => setShowMemberDropdown(false)}
@@ -201,6 +212,15 @@ export function Header() {
                 >
                   <Plus className="w-4 h-4" /> Administrar o agregar integrantes
                 </Link>
+                {(user?.rol === 'superadmin' || user?.rol === 'admin') && (
+                  <Link
+                    href="/admin"
+                    onClick={() => setShowMemberDropdown(false)}
+                    className="flex items-center gap-2 text-xs text-amber-950 font-extrabold p-2 bg-amber-100 hover:bg-amber-200 rounded-xl transition-colors border border-amber-300"
+                  >
+                    <ShieldCheck className="w-4 h-4 text-amber-600" /> Super Admin Panel
+                  </Link>
+                )}
               </div>
             </div>
           )}

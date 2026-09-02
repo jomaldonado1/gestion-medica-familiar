@@ -20,10 +20,11 @@ import {
 } from 'lucide-react';
 import { useApp } from '@/context/AppContext';
 import { PWAInstallButton } from '@/components/pwa/PWAInstallButton';
+import { Sparkles } from 'lucide-react';
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { user, cerrarSesion, miembros, miembroActivo, setMiembroActivoId } = useApp();
+  const { user, cerrarSesion, miembros, miembroActivo, setMiembroActivoId, setShowPricingModal } = useApp();
 
   if (
     pathname === '/login' ||
@@ -44,6 +45,11 @@ export function Sidebar() {
     { href: '/estudios', label: 'Estudios Médicos', icon: FileText },
   ];
 
+  const planNombre = (user?.plan_nombre || 'prueba').toUpperCase();
+  const maxCupo = user?.max_integrantes && user.max_integrantes >= 999 ? '∞' : (user?.max_integrantes || 1);
+  const expiraMs = user?.plan_expira ? new Date(user.plan_expira).getTime() : 0;
+  const diasRestantes = expiraMs > 0 ? Math.max(0, Math.ceil((expiraMs - Date.now()) / (1000 * 3600 * 24))) : null;
+
   return (
     <aside aria-label="Navegación lateral" className="hidden md:flex flex-col w-72 bg-white border-r border-slate-200 min-h-screen p-4 sticky top-0 h-screen overflow-y-auto">
       {/* Brand Header */}
@@ -55,6 +61,35 @@ export function Sidebar() {
           <h1 className="font-bold text-slate-900 text-lg leading-tight tracking-tight">MedFamiliar</h1>
           <p className="text-xs font-semibold text-sky-600">Salud & Historial PWA</p>
         </div>
+      </div>
+
+      {/* TARJETA DE SUSCRIPCIÓN Y CUPOS */}
+      <div className="mb-4 bg-gradient-to-br from-slate-900 via-slate-800 to-sky-950 text-white p-3.5 rounded-2xl border border-slate-700 shadow-sm">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/30">
+            Plan {planNombre}
+          </span>
+          {user?.plan_nombre === 'prueba' && diasRestantes !== null && (
+            <span className="text-[10px] font-bold text-amber-300">
+              ⏳ {diasRestantes}d de prueba
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center justify-between text-xs font-medium mb-2.5 text-slate-200">
+          <span>Cupo Integrantes:</span>
+          <span className="font-bold text-white bg-slate-800 px-2 py-0.5 rounded-md border border-slate-700">
+            {miembros.length} / {maxCupo}
+          </span>
+        </div>
+
+        <button
+          onClick={() => setShowPricingModal(true)}
+          className="w-full flex items-center justify-center gap-1.5 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-extrabold text-xs py-2 rounded-xl transition-all shadow-sm active:scale-95"
+        >
+          <Sparkles className="w-3.5 h-3.5 fill-slate-950" />
+          <span>⭐ Mejorar Plan</span>
+        </button>
       </div>
 
       {/* Member Selector Widget in Sidebar */}
@@ -149,8 +184,8 @@ export function Sidebar() {
           </div>
         )}
 
-        {/* Admin Link if user is admin */}
-        {user?.rol === 'admin' && (
+        {/* Admin Link if user is superadmin or admin */}
+        {(user?.rol === 'superadmin' || user?.rol === 'admin') && (
           <div className="pt-2">
             <Link
               href="/admin"
