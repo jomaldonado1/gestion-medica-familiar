@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { 
   Miembro, 
@@ -9,7 +9,6 @@ import {
   Consulta, 
   Estudio, 
   PerfilUser, 
-  TipoMiembro,
   RolTutor 
 } from '@/lib/types';
 import { 
@@ -85,7 +84,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [consultas, setConsultas] = useState<Consulta[]>(INITIAL_CONSULTAS);
   const [estudios, setEstudios] = useState<Estudio[]>(INITIAL_ESTUDIOS);
 
-  // Guardar en cache local por usuario de todos los módulos
+  // Guardar cache local de respaldo para soporte offline
   const guardarCacheCompleto = (usrId: string, data: {
     miembros?: Miembro[];
     medicos?: Medico[];
@@ -114,191 +113,230 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return [];
   };
 
-  // Escuchar sesión y cargar datos reales de Supabase (Single Source of Truth con Auto-reparación)
-  useEffect(() => {
-    async function cargarDatosSupabase() {
-      try {
-        const { data: { user: authUser } } = await supabase.auth.getUser();
+  // Carga unificada de datos desde Supabase (Single Source of Truth)
+  const cargarDatosSupabase = useCallback(async () => {
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
 
-        if (authUser) {
-          // 1. Cargar Perfil
-          const { data: perfilData } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', authUser.id)
-            .single();
+      if (!authUser) {
+        setUser(null);
+        setMiembros([]);
+        setMedicos([]);
+        setMedicamentos([]);
+        setConsultas([]);
+        setEstudios([]);
+        setLoadingAuth(false);
+        return;
+      }
 
-          const currentProfile: PerfilUser = perfilData ? (perfilData as PerfilUser) : {
-            id: authUser.id,
-            email: authUser.email || '',
-            nombre_completo: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'Usuario',
-            telefono: null,
-            rol: 'user',
-            created_at: new Date().toISOString()
-          };
+      // 1. Perfil del Usuario
+      const { data: perfilData } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', authUser.id)
+        .single();
 
-          setUser(currentProfile);
+      const currentProfile: PerfilUser = perfilData ? (perfilData as PerfilUser) : {
+        id: authUser.id,
+        email: authUser.email || '',
+        nombre_completo: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'Usuario',
+        telefono: null,
+        rol: 'user',
+        created_at: new Date().toISOString()
+      };
 
-          // 2. Cargar Miembros creados por el usuario O vinculados como tutores
-          const { data: dbMiembrosCreados } = await supabase
-            .from('miembros')
-            .select('*')
-            .eq('creado_por', authUser.id);
+      setUser(currentProfile);
 
-          const { data: miembrosTutores } = await supabase
-            .from('miembro_tutores')
-            .select('miembro_id, rol, miembros(*)')
-            .eq('user_id', authUser.id);
+      // 2. Cargar Miembros creados por el usuario u obtenidos mediante tutores
+      const { data: dbMiembrosCreados } = await supabase
+        .from('miembros')
+        .select('*')
+        .eq('creado_por', authUser.id);
 
-          const mapaMiembrosDb = new Map<string, Miembro>();
+      const { data: miembrosTutores } = await supabase
+        .from('miembro_tutores')
+        .select('miembro_id, rol, miembros(*)')
+        .eq('user_id', authUser.id);
 
-          if (dbMiembrosCreados) {
-            dbMiembrosCreados.forEach((m: any) => {
-              mapaMiembrosDb.set(m.id, { ...m, rol_actual: 'propietario' });
+      const mapaMiembrosDb = new Map<string, Miembro>();
+
+      if (dbMiembrosCreados) {
+        dbMiembrosCreados.forEach((m: any) => {
+          mapaMiembrosDb.set(m.id, { ...m, rol_actual: 'propietario' });
+        });
+      }
+
+      if (miembrosTutores) {
+        miembrosTutores.forEach((mt: any) => {
+          if (mt.miembros) {
+            mapaMiembrosDb.set(mt.miembros.id, {
+              ...mt.miembros,
+              rol_actual: mt.rol
             });
           }
+        });
+      }
 
-          if (miembrosTutores) {
-            miembrosTutores.forEach((mt: any) => {
-              if (mt.miembros) {
-                mapaMiembrosDb.set(mt.miembros.id, {
-                  ...mt.miembros,
-                  rol_actual: mt.rol
-                });
-              }
-            });
-          }
-
-          // Self-healing: auto-limpieza de erratas y duplicados en Supabase
-          if (dbMiembrosCreados && dbMiembrosCreados.length > 0) {
-            // 1. Borrar duplicado de MARIA EVA CARRANZA (Yo / Adulto) si existe la de (Adulto Mayor / Padre)
-            const dupesMariaEva = dbMiembrosCreados.filter(m => m.nombre.toLowerCase().trim().includes('maria eva carranza'));
-            if (dupesMariaEva.length > 1) {
-              const dupeABorrar = dupesMariaEva.find(m => m.tipo === 'Yo / Adulto');
-              if (dupeABorrar) {
-                await supabase.from('miembro_tutores').delete().eq('miembro_id', dupeABorrar.id);
-                await supabase.from('miembros').delete().eq('id', dupeABorrar.id);
-                mapaMiembrosDb.delete(dupeABorrar.id);
-              }
-            }
-
-            // 2. Corregir errata MALDOANDO -> MALDONADO
-            const antonioErrata = dbMiembrosCreados.find(m => m.nombre.toLowerCase().trim().includes('maldoando'));
-            if (antonioErrata) {
-              await supabase.from('miembros').update({ nombre: 'ANTONIO MALDONADO' }).eq('id', antonioErrata.id);
-              const mObj = mapaMiembrosDb.get(antonioErrata.id);
-              if (mObj) mObj.nombre = 'ANTONIO MALDONADO';
-            }
-          }
-
-          // 3. Auto-restaurar LANA (Mascota) si no existía en Supabase
-          const tieneLana = Array.from(mapaMiembrosDb.values()).some(m => m.nombre.toLowerCase().trim().includes('lana'));
-          if (!tieneLana && authUser.id) {
-            const { data: insertedLana } = await supabase.from('miembros').insert({
-              tipo: 'Mascota',
-              nombre: 'LANA',
-              especie_raza: 'Mascota Familiar',
-              creado_por: authUser.id
-            }).select().single();
-
-            if (insertedLana) {
-              const mNuevo = { ...insertedLana, rol_actual: 'propietario' } as Miembro;
-              mapaMiembrosDb.set(insertedLana.id, mNuevo);
-              await supabase.from('miembro_tutores').insert({
-                miembro_id: insertedLana.id,
-                user_id: authUser.id,
-                rol: 'propietario'
-              });
-            }
-          }
-
-          const listaMiembrosDb = Array.from(mapaMiembrosDb.values());
-          let listaFinalMiembros: Miembro[] = [];
-
-          if (listaMiembrosDb && listaMiembrosDb.length > 0) {
-            const mapaUnicos = new Map<string, Miembro>();
-            listaMiembrosDb.forEach(m => {
-              const clave = m.nombre.toLowerCase().trim();
-              if (!mapaUnicos.has(clave)) {
-                mapaUnicos.set(clave, m);
-              }
-            });
-            listaFinalMiembros = Array.from(mapaUnicos.values());
-          } else {
-            const cacheLocalMiembros = cargarCacheModulo<Miembro>(authUser.id, 'miembros');
-            if (cacheLocalMiembros && cacheLocalMiembros.length > 0) {
-              listaFinalMiembros = cacheLocalMiembros;
-            }
-          }
-
-          setMiembros(listaFinalMiembros);
-          guardarCacheCompleto(authUser.id, { miembros: listaFinalMiembros });
-
-          if (listaFinalMiembros.length > 0) {
-            setMiembroActivoIdState(prev => prev || listaFinalMiembros[0].id);
-          }
-
-          const idsMiembros = listaFinalMiembros.map(m => m.id);
-
-          if (idsMiembros.length > 0) {
-            // 3. Cargar Médicos
-            const { data: dbMedicos } = await supabase
-              .from('medicos')
-              .select('*')
-              .in('miembro_id', idsMiembros);
-            const cacheMedicos = cargarCacheModulo<Medico>(authUser.id, 'medicos');
-            const medicosFinales = dbMedicos && dbMedicos.length > 0 ? (dbMedicos as Medico[]) : cacheMedicos;
-            setMedicos(medicosFinales);
-            guardarCacheCompleto(authUser.id, { medicos: medicosFinales });
-
-            // 4. Cargar Medicamentos
-            const { data: dbMeds } = await supabase
-              .from('medicamentos')
-              .select('*')
-              .in('miembro_id', idsMiembros);
-            const cacheMeds = cargarCacheModulo<Medicamento>(authUser.id, 'meds');
-            const medsFinales = dbMeds && dbMeds.length > 0 ? (dbMeds as Medicamento[]) : cacheMeds;
-            setMedicamentos(medsFinales);
-            guardarCacheCompleto(authUser.id, { medicamentos: medsFinales });
-
-            // 5. Cargar Consultas
-            const { data: dbConsultas } = await supabase
-              .from('consultas')
-              .select('*')
-              .in('miembro_id', idsMiembros);
-            const cacheConsultas = cargarCacheModulo<Consulta>(authUser.id, 'consultas');
-            const consultasFinales = dbConsultas && dbConsultas.length > 0 ? (dbConsultas as Consulta[]) : cacheConsultas;
-            setConsultas(consultasFinales);
-            guardarCacheCompleto(authUser.id, { consultas: consultasFinales });
-
-            // 6. Cargar Estudios
-            const { data: dbEstudios } = await supabase
-              .from('estudios')
-              .select('*')
-              .in('miembro_id', idsMiembros);
-            const cacheEstudios = cargarCacheModulo<Estudio>(authUser.id, 'estudios');
-            const estudiosFinales = dbEstudios && dbEstudios.length > 0 ? (dbEstudios as Estudio[]) : cacheEstudios;
-            setEstudios(estudiosFinales);
-            guardarCacheCompleto(authUser.id, { estudios: estudiosFinales });
+      // Auto-limpieza y auto-restauración de LANA si es necesario
+      if (dbMiembrosCreados && dbMiembrosCreados.length > 0) {
+        const dupesMariaEva = dbMiembrosCreados.filter(m => m.nombre.toLowerCase().trim().includes('maria eva carranza'));
+        if (dupesMariaEva.length > 1) {
+          const dupeABorrar = dupesMariaEva.find(m => m.tipo === 'Yo / Adulto');
+          if (dupeABorrar) {
+            await supabase.from('miembro_tutores').delete().eq('miembro_id', dupeABorrar.id);
+            await supabase.from('miembros').delete().eq('id', dupeABorrar.id);
+            mapaMiembrosDb.delete(dupeABorrar.id);
           }
         }
-      } catch (err) {
-        console.log('Utilizando modo local / fallback de Supabase:', err);
-      } finally {
-        setLoadingAuth(false);
-      }
-    }
 
+        const antonioErrata = dbMiembrosCreados.find(m => m.nombre.toLowerCase().trim().includes('maldoando'));
+        if (antonioErrata) {
+          await supabase.from('miembros').update({ nombre: 'ANTONIO MALDONADO' }).eq('id', antonioErrata.id);
+          const mObj = mapaMiembrosDb.get(antonioErrata.id);
+          if (mObj) mObj.nombre = 'ANTONIO MALDONADO';
+        }
+      }
+
+      const tieneLana = Array.from(mapaMiembrosDb.values()).some(m => m.nombre.toLowerCase().trim().includes('lana'));
+      if (!tieneLana && authUser.id) {
+        const { data: insertedLana } = await supabase.from('miembros').insert({
+          tipo: 'Mascota',
+          nombre: 'LANA',
+          especie_raza: 'Mascota Familiar',
+          creado_por: authUser.id
+        }).select().single();
+
+        if (insertedLana) {
+          const mNuevo = { ...insertedLana, rol_actual: 'propietario' } as Miembro;
+          mapaMiembrosDb.set(insertedLana.id, mNuevo);
+          await supabase.from('miembro_tutores').insert({
+            miembro_id: insertedLana.id,
+            user_id: authUser.id,
+            rol: 'propietario'
+          });
+        }
+      }
+
+      const listaMiembrosDb = Array.from(mapaMiembrosDb.values());
+      let listaFinalMiembros: Miembro[] = [];
+
+      if (listaMiembrosDb && listaMiembrosDb.length > 0) {
+        const mapaUnicos = new Map<string, Miembro>();
+        listaMiembrosDb.forEach(m => {
+          const clave = m.nombre.toLowerCase().trim();
+          if (!mapaUnicos.has(clave)) {
+            mapaUnicos.set(clave, m);
+          }
+        });
+        listaFinalMiembros = Array.from(mapaUnicos.values());
+      } else {
+        const cacheLocalMiembros = cargarCacheModulo<Miembro>(authUser.id, 'miembros');
+        if (cacheLocalMiembros && cacheLocalMiembros.length > 0) {
+          listaFinalMiembros = cacheLocalMiembros;
+        }
+      }
+
+      setMiembros(listaFinalMiembros);
+      guardarCacheCompleto(authUser.id, { miembros: listaFinalMiembros });
+
+      if (listaFinalMiembros.length > 0) {
+        setMiembroActivoIdState(prev => prev && listaFinalMiembros.some(m => m.id === prev) ? prev : listaFinalMiembros[0].id);
+      }
+
+      const idsMiembros = listaFinalMiembros.map(m => m.id);
+
+      if (idsMiembros.length > 0) {
+        // 3. Médicos
+        const { data: dbMedicos } = await supabase
+          .from('medicos')
+          .select('*')
+          .in('miembro_id', idsMiembros);
+        const cacheMedicos = cargarCacheModulo<Medico>(authUser.id, 'medicos');
+        const medicosFinales = dbMedicos ? (dbMedicos as Medico[]) : cacheMedicos;
+        setMedicos(medicosFinales);
+        guardarCacheCompleto(authUser.id, { medicos: medicosFinales });
+
+        // 4. Medicamentos
+        const { data: dbMeds } = await supabase
+          .from('medicamentos')
+          .select('*')
+          .in('miembro_id', idsMiembros);
+        const cacheMeds = cargarCacheModulo<Medicamento>(authUser.id, 'meds');
+        const medsFinales = dbMeds ? (dbMeds as Medicamento[]) : cacheMeds;
+        setMedicamentos(medsFinales);
+        guardarCacheCompleto(authUser.id, { medicamentos: medsFinales });
+
+        // 5. Consultas
+        const { data: dbConsultas } = await supabase
+          .from('consultas')
+          .select('*')
+          .in('miembro_id', idsMiembros);
+        const cacheConsultas = cargarCacheModulo<Consulta>(authUser.id, 'consultas');
+        const consultasFinales = dbConsultas ? (dbConsultas as Consulta[]) : cacheConsultas;
+        setConsultas(consultasFinales);
+        guardarCacheCompleto(authUser.id, { consultas: consultasFinales });
+
+        // 6. Estudios
+        const { data: dbEstudios } = await supabase
+          .from('estudios')
+          .select('*')
+          .in('miembro_id', idsMiembros);
+        const cacheEstudios = cargarCacheModulo<Estudio>(authUser.id, 'estudios');
+        const estudiosFinales = dbEstudios ? (dbEstudios as Estudio[]) : cacheEstudios;
+        setEstudios(estudiosFinales);
+        guardarCacheCompleto(authUser.id, { estudios: estudiosFinales });
+      }
+    } catch (err) {
+      console.error('Error cargando datos de Supabase:', err);
+    } finally {
+      setLoadingAuth(false);
+    }
+  }, [supabase]);
+
+  // Supabase Realtime + Suscripción a Cambios en Vivo y Eventos de Enfoque/Reconexión
+  useEffect(() => {
     cargarDatosSupabase();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
       cargarDatosSupabase();
     });
 
+    // Suscripción Realtime por Supabase Postgres Changes
+    const channel = supabase
+      .channel('pwa_realtime_db_sync')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public' },
+        () => {
+          cargarDatosSupabase();
+        }
+      )
+      .subscribe();
+
+    // Eventos de Reconexión y Reenfoque de Ventana
+    const handleFocus = () => cargarDatosSupabase();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        cargarDatosSupabase();
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleFocus);
+      window.addEventListener('online', handleFocus);
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
     return () => {
       subscription.unsubscribe();
+      supabase.removeChannel(channel);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleFocus);
+        window.removeEventListener('online', handleFocus);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
     };
-  }, []);
+  }, [cargarDatosSupabase, supabase]);
 
   const miembroActivo = miembros.find(m => m.id === miembroActivoId) || miembros[0] || null;
 
@@ -327,468 +365,301 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Limpiar duplicados de Supabase conservando qr_code_token constante
   const limpiarDuplicadosSupabase = async () => {
     if (!user?.id) return;
-
-    try {
-      const { data: actuales } = await supabase
-        .from('miembros')
-        .select('id')
-        .eq('creado_por', user.id);
-
-      if (actuales && actuales.length > 0) {
-        for (const act of actuales) {
-          await supabase.from('miembro_tutores').delete().eq('miembro_id', act.id);
-          await supabase.from('miembros').delete().eq('id', act.id);
-        }
-      }
-
-      for (let i = 0; i < miembros.length; i++) {
-        const m = miembros[i];
-        const payloadInsert: Record<string, any> = {
-          tipo: m.tipo,
-          nombre: m.nombre,
-          telefono: m.telefono || null,
-          dni: m.dni || null,
-          obra_social: m.obra_social || null,
-          nro_afiliado: m.nro_afiliado || null,
-          plan_obra_social: m.plan_obra_social || null,
-          fecha_nacimiento: m.fecha_nacimiento || null,
-          grupo_sanguineo: m.grupo_sanguineo || null,
-          especie_raza: m.especie_raza || null,
-          alergias: m.alergias || null,
-          contacto_emergencia_nombre: m.contacto_emergencia_nombre || null,
-          contacto_emergencia_telefono: m.contacto_emergencia_telefono || null,
-          observaciones: m.observaciones || null,
-          creado_por: user.id
-        };
-
-        if (m.qr_code_token && !m.qr_code_token.startsWith('emergency-')) {
-          payloadInsert.qr_code_token = m.qr_code_token;
-        }
-
-        const { data: nuevo, error } = await supabase.from('miembros').insert(payloadInsert).select().single();
-
-        if (nuevo && !error) {
-          miembros[i].id = nuevo.id;
-          miembros[i].qr_code_token = nuevo.qr_code_token;
-          await supabase.from('miembro_tutores').insert({
-            miembro_id: nuevo.id,
-            user_id: user.id,
-            rol: 'propietario'
-          });
-        }
-      }
-
-      setMiembros([...miembros]);
-      guardarCacheCompleto(user.id, { miembros, medicos, medicamentos, consultas, estudios });
-    } catch (e) {
-      console.error('Error en limpiarDuplicadosSupabase:', e);
-    }
+    await cargarDatosSupabase();
   };
 
   const sincronizarConNube = async () => {
-    if (!user?.id) return;
-    await limpiarDuplicadosSupabase();
+    await cargarDatosSupabase();
   };
 
-  // Agregar Integrante
+  // MUTACIÓN STRICT SUPABASE: Agregar Integrante
   const agregarMiembro = async (datos: Omit<Miembro, 'id' | 'creado_por' | 'qr_code_token' | 'created_at'>) => {
-    const tempId = `m-${Date.now()}`;
-    const tempToken = `emergency-${datos.nombre.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
-    
-    let nuevoMiembro: Miembro = {
-      ...datos,
-      id: tempId,
-      creado_por: user?.id || 'usr-1',
-      qr_code_token: tempToken,
-      created_at: new Date().toISOString(),
-      rol_actual: 'propietario'
-    };
+    if (!user?.id) {
+      alert('Debes iniciar sesión para agregar integrantes.');
+      return;
+    }
 
-    setMiembros(prev => {
-      const actualizados = [...prev, nuevoMiembro];
-      if (user?.id) guardarCacheCompleto(user.id, { miembros: actualizados });
-      return actualizados;
-    });
-    setMiembroActivoIdState(tempId);
+    const { data, error } = await supabase.from('miembros').insert({
+      tipo: datos.tipo,
+      nombre: datos.nombre,
+      telefono: datos.telefono || null,
+      dni: datos.dni || null,
+      obra_social: datos.obra_social || null,
+      nro_afiliado: datos.nro_afiliado || null,
+      plan_obra_social: datos.plan_obra_social || null,
+      fecha_nacimiento: datos.fecha_nacimiento || null,
+      grupo_sanguineo: datos.grupo_sanguineo || null,
+      especie_raza: datos.especie_raza || null,
+      alergias: datos.alergias || null,
+      contacto_emergencia_nombre: datos.contacto_emergencia_nombre || null,
+      contacto_emergencia_telefono: datos.contacto_emergencia_telefono || null,
+      observaciones: datos.observaciones || null,
+      creado_por: user.id
+    }).select().single();
 
-    try {
-      if (user?.id) {
-        const { data, error } = await supabase.from('miembros').insert({
-          tipo: datos.tipo,
-          nombre: datos.nombre,
-          telefono: datos.telefono,
-          dni: datos.dni,
-          obra_social: datos.obra_social,
-          nro_afiliado: datos.nro_afiliado,
-          plan_obra_social: datos.plan_obra_social,
-          fecha_nacimiento: datos.fecha_nacimiento,
-          grupo_sanguineo: datos.grupo_sanguineo,
-          especie_raza: datos.especie_raza,
-          alergias: datos.alergias,
-          contacto_emergencia_nombre: datos.contacto_emergencia_nombre,
-          contacto_emergencia_telefono: datos.contacto_emergencia_telefono,
-          observaciones: datos.observaciones,
-          creado_por: user.id
-        }).select().single();
+    if (error) {
+      console.error('Error insertando integrante en Supabase:', error);
+      alert(`No se pudo crear el integrante en la nube: ${error.message}`);
+      return;
+    }
 
-        if (data && !error) {
-          const realMiembro: Miembro = {
-            ...data,
-            rol_actual: 'propietario'
-          };
+    if (data) {
+      await supabase.from('miembro_tutores').insert({
+        miembro_id: data.id,
+        user_id: user.id,
+        rol: 'propietario'
+      });
 
-          setMiembros(prev => {
-            const reemplazados = prev.map(m => m.id === tempId ? realMiembro : m);
-            if (user?.id) guardarCacheCompleto(user.id, { miembros: reemplazados });
-            return reemplazados;
-          });
-          setMiembroActivoIdState(realMiembro.id);
-
-          await supabase.from('miembro_tutores').insert({
-            miembro_id: data.id,
-            user_id: user.id,
-            rol: 'propietario'
-          });
-        }
-      }
-    } catch (e) {
-      console.log('Error insertando en Supabase:', e);
+      setMiembroActivoIdState(data.id);
+      await cargarDatosSupabase();
     }
   };
 
-  // Editar Integrante
+  // MUTACIÓN STRICT SUPABASE: Editar Integrante
   const editarMiembro = async (id: string, datos: Partial<Miembro>) => {
-    const targetOld = miembros.find(m => m.id === id);
-
-    setMiembros(prev => {
-      const actualizados = prev.map(m => m.id === id ? { ...m, ...datos } : m);
-      if (user?.id) guardarCacheCompleto(user.id, { miembros: actualizados });
-      return actualizados;
-    });
-
-    try {
-      if (user?.id) {
-        const payload: Record<string, any> = {};
-        if (datos.nombre !== undefined) payload.nombre = datos.nombre;
-        if (datos.tipo !== undefined) payload.tipo = datos.tipo;
-        if (datos.telefono !== undefined) payload.telefono = datos.telefono;
-        if (datos.dni !== undefined) payload.dni = datos.dni;
-        if (datos.obra_social !== undefined) payload.obra_social = datos.obra_social;
-        if (datos.nro_afiliado !== undefined) payload.nro_afiliado = datos.nro_afiliado;
-        if (datos.plan_obra_social !== undefined) payload.plan_obra_social = datos.plan_obra_social;
-        if (datos.fecha_nacimiento !== undefined) payload.fecha_nacimiento = datos.fecha_nacimiento;
-        if (datos.grupo_sanguineo !== undefined) payload.grupo_sanguineo = datos.grupo_sanguineo;
-        if (datos.especie_raza !== undefined) payload.especie_raza = datos.especie_raza;
-        if (datos.alergias !== undefined) payload.alergias = datos.alergias;
-        if (datos.contacto_emergencia_nombre !== undefined) payload.contacto_emergencia_nombre = datos.contacto_emergencia_nombre;
-        if (datos.contacto_emergencia_telefono !== undefined) payload.contacto_emergencia_telefono = datos.contacto_emergencia_telefono;
-        if (datos.observaciones !== undefined) payload.observaciones = datos.observaciones;
-
-        if (Object.keys(payload).length > 0) {
-          await supabase.from('miembros').update(payload).eq('id', id);
-
-          if (targetOld?.nombre) {
-            await supabase
-              .from('miembros')
-              .update(payload)
-              .eq('creado_por', user.id)
-              .ilike('nombre', targetOld.nombre.trim());
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Error en editarMiembro:', e);
+    if (!user?.id) {
+      alert('Debes iniciar sesión para guardar cambios.');
+      return;
     }
+
+    const payload: Record<string, any> = {};
+    if (datos.nombre !== undefined) payload.nombre = datos.nombre;
+    if (datos.tipo !== undefined) payload.tipo = datos.tipo;
+    if (datos.telefono !== undefined) payload.telefono = datos.telefono;
+    if (datos.dni !== undefined) payload.dni = datos.dni;
+    if (datos.obra_social !== undefined) payload.obra_social = datos.obra_social;
+    if (datos.nro_afiliado !== undefined) payload.nro_afiliado = datos.nro_afiliado;
+    if (datos.plan_obra_social !== undefined) payload.plan_obra_social = datos.plan_obra_social;
+    if (datos.fecha_nacimiento !== undefined) payload.fecha_nacimiento = datos.fecha_nacimiento;
+    if (datos.grupo_sanguineo !== undefined) payload.grupo_sanguineo = datos.grupo_sanguineo;
+    if (datos.especie_raza !== undefined) payload.especie_raza = datos.especie_raza;
+    if (datos.alergias !== undefined) payload.alergias = datos.alergias;
+    if (datos.contacto_emergencia_nombre !== undefined) payload.contacto_emergencia_nombre = datos.contacto_emergencia_nombre;
+    if (datos.contacto_emergencia_telefono !== undefined) payload.contacto_emergencia_telefono = datos.contacto_emergencia_telefono;
+    if (datos.observaciones !== undefined) payload.observaciones = datos.observaciones;
+
+    const { error } = await supabase.from('miembros').update(payload).eq('id', id);
+
+    if (error) {
+      console.error('Error actualizando integrante en Supabase:', error);
+      alert(`No se pudo actualizar en la nube: ${error.message}`);
+      return;
+    }
+
+    await cargarDatosSupabase();
   };
 
-  // Eliminar Integrante
+  // MUTACIÓN STRICT SUPABASE: Eliminar Integrante
   const eliminarMiembro = async (id: string) => {
-    const target = miembros.find(m => m.id === id);
-
-    setMiembros(prev => {
-      const actualizados = prev.filter(m => m.id !== id);
-      if (user?.id) guardarCacheCompleto(user.id, { miembros: actualizados });
-      return actualizados;
-    });
-
-    if (miembroActivoId === id) {
-      const restante = miembros.find(m => m.id !== id);
-      if (restante) setMiembroActivoIdState(restante ? restante.id : '');
+    if (!user?.id) {
+      alert('Debes iniciar sesión para eliminar integrantes.');
+      return;
     }
 
-    try {
-      if (user?.id) {
-        await supabase.from('miembro_tutores').delete().eq('miembro_id', id);
-        await supabase.from('miembros').delete().eq('id', id);
+    await supabase.from('miembro_tutores').delete().eq('miembro_id', id);
+    const { error } = await supabase.from('miembros').delete().eq('id', id);
 
-        if (target?.nombre) {
-          const { data: dupes } = await supabase
-            .from('miembros')
-            .select('id')
-            .eq('creado_por', user.id)
-            .ilike('nombre', target.nombre.trim());
-
-          if (dupes && dupes.length > 0) {
-            for (const d of dupes) {
-              await supabase.from('miembro_tutores').delete().eq('miembro_id', d.id);
-              await supabase.from('miembros').delete().eq('id', d.id);
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Error en eliminarMiembro:', e);
+    if (error) {
+      console.error('Error eliminando integrante en Supabase:', error);
+      alert(`No se pudo eliminar el integrante de la nube: ${error.message}`);
+      return;
     }
+
+    await cargarDatosSupabase();
   };
 
-  // Médicos
+  // MUTACIÓN STRICT SUPABASE: Agregar Médico
   const agregarMedico = async (datos: Omit<Medico, 'id' | 'created_at'>) => {
-    const tempId = `med-${Date.now()}`;
-    let nuevoMedico: Medico = {
-      ...datos,
-      id: tempId,
-      created_at: new Date().toISOString()
-    };
+    if (!user?.id) {
+      alert('Debes iniciar sesión para agregar médicos.');
+      return;
+    }
 
-    setMedicos(prev => {
-      const actualizados = [nuevoMedico, ...prev];
-      if (user?.id) guardarCacheCompleto(user.id, { medicos: actualizados });
-      return actualizados;
+    const { error } = await supabase.from('medicos').insert({
+      miembro_id: datos.miembro_id,
+      nombre: datos.nombre,
+      especialidad: datos.especialidad || null,
+      telefono: datos.telefono || null,
+      centro_atencion: datos.centro_atencion || null,
+      direccion: datos.direccion || null,
+      observaciones: datos.observaciones || null
     });
 
-    try {
-      if (user?.id) {
-        const { data, error } = await supabase.from('medicos').insert({
-          miembro_id: datos.miembro_id,
-          nombre: datos.nombre,
-          especialidad: datos.especialidad || null,
-          telefono: datos.telefono || null,
-          centro_atencion: datos.centro_atencion || null,
-          direccion: datos.direccion || null,
-          observaciones: datos.observaciones || null
-        }).select().single();
-
-        if (data && !error) {
-          setMedicos(prev => {
-            const reemplazados = prev.map(m => m.id === tempId ? (data as Medico) : m);
-            if (user?.id) guardarCacheCompleto(user.id, { medicos: reemplazados });
-            return reemplazados;
-          });
-        }
-      }
-    } catch (e) {
-      console.error('Error insertando médico:', e);
+    if (error) {
+      console.error('Error insertando médico en Supabase:', error);
+      alert(`No se pudo registrar el médico en la nube: ${error.message}`);
+      return;
     }
+
+    await cargarDatosSupabase();
   };
 
+  // MUTACIÓN STRICT SUPABASE: Eliminar Médico
   const eliminarMedico = async (id: string) => {
-    setMedicos(prev => {
-      const actualizados = prev.filter(m => m.id !== id);
-      if (user?.id) guardarCacheCompleto(user.id, { medicos: actualizados });
-      return actualizados;
-    });
+    if (!user?.id) return;
+    const { error } = await supabase.from('medicos').delete().eq('id', id);
 
-    try {
-      if (user?.id) {
-        await supabase.from('medicos').delete().eq('id', id);
-      }
-    } catch (e) {}
-  };
-
-  // Medicamentos
-  const agregarMedicamento = async (datos: Omit<Medicamento, 'id' | 'created_at'>) => {
-    const tempId = `farm-${Date.now()}`;
-    let nuevoMed: Medicamento = {
-      ...datos,
-      id: tempId,
-      created_at: new Date().toISOString()
-    };
-
-    setMedicamentos(prev => {
-      const actualizados = [nuevoMed, ...prev];
-      if (user?.id) guardarCacheCompleto(user.id, { medicamentos: actualizados });
-      return actualizados;
-    });
-
-    try {
-      if (user?.id) {
-        const { data, error } = await supabase.from('medicamentos').insert({
-          miembro_id: datos.miembro_id,
-          nombre: datos.nombre,
-          droga_componente: datos.droga_componente || null,
-          dosis: datos.dosis || null,
-          frecuencia: datos.frecuencia || null,
-          horario: datos.horario || null,
-          activo: datos.activo ?? true,
-          observaciones: datos.observaciones || null
-        }).select().single();
-
-        if (data && !error) {
-          setMedicamentos(prev => {
-            const reemplazados = prev.map(m => m.id === tempId ? (data as Medicamento) : m);
-            if (user?.id) guardarCacheCompleto(user.id, { medicamentos: reemplazados });
-            return reemplazados;
-          });
-        }
-      }
-    } catch (e) {
-      console.error('Error insertando medicamento:', e);
+    if (error) {
+      console.error('Error eliminando médico:', error);
+      alert(`Error al eliminar médico: ${error.message}`);
+      return;
     }
+
+    await cargarDatosSupabase();
   };
 
+  // MUTACIÓN STRICT SUPABASE: Agregar Medicamento
+  const agregarMedicamento = async (datos: Omit<Medicamento, 'id' | 'created_at'>) => {
+    if (!user?.id) {
+      alert('Debes iniciar sesión para registrar medicamentos.');
+      return;
+    }
+
+    const { error } = await supabase.from('medicamentos').insert({
+      miembro_id: datos.miembro_id,
+      nombre: datos.nombre,
+      droga_componente: datos.droga_componente || null,
+      dosis: datos.dosis || null,
+      frecuencia: datos.frecuencia || null,
+      horario: datos.horario || null,
+      activo: datos.activo ?? true,
+      observaciones: datos.observaciones || null
+    });
+
+    if (error) {
+      console.error('Error insertando medicamento en Supabase:', error);
+      alert(`No se pudo agregar el medicamento a la nube: ${error.message}`);
+      return;
+    }
+
+    await cargarDatosSupabase();
+  };
+
+  // MUTACIÓN STRICT SUPABASE: Toggle Medicamento Activo
   const toggleMedicamentoActivo = async (id: string) => {
+    if (!user?.id) return;
     const medTarget = medicamentos.find(m => m.id === id);
     const nuevoEstado = medTarget ? !medTarget.activo : true;
 
-    setMedicamentos(prev => {
-      const actualizados = prev.map(m => m.id === id ? { ...m, activo: nuevoEstado } : m);
-      if (user?.id) guardarCacheCompleto(user.id, { medicamentos: actualizados });
-      return actualizados;
-    });
+    const { error } = await supabase.from('medicamentos').update({ activo: nuevoEstado }).eq('id', id);
 
-    try {
-      if (user?.id) {
-        await supabase.from('medicamentos').update({ activo: nuevoEstado }).eq('id', id);
-      }
-    } catch (e) {}
+    if (error) {
+      console.error('Error actualizando medicamento en Supabase:', error);
+      alert(`Error al cambiar estado del tratamiento: ${error.message}`);
+      return;
+    }
+
+    await cargarDatosSupabase();
   };
 
+  // MUTACIÓN STRICT SUPABASE: Eliminar Medicamento
   const eliminarMedicamento = async (id: string) => {
-    setMedicamentos(prev => {
-      const actualizados = prev.filter(m => m.id !== id);
-      if (user?.id) guardarCacheCompleto(user.id, { medicamentos: actualizados });
-      return actualizados;
-    });
+    if (!user?.id) return;
+    const { error } = await supabase.from('medicamentos').delete().eq('id', id);
 
-    try {
-      if (user?.id) {
-        await supabase.from('medicamentos').delete().eq('id', id);
-      }
-    } catch (e) {}
+    if (error) {
+      console.error('Error eliminando medicamento:', error);
+      alert(`Error al eliminar medicamento: ${error.message}`);
+      return;
+    }
+
+    await cargarDatosSupabase();
   };
 
-  // Consultas
+  // MUTACIÓN STRICT SUPABASE: Agregar Consulta / Turno
   const agregarConsulta = async (datos: Omit<Consulta, 'id' | 'created_at'>) => {
-    const tempId = `cons-${Date.now()}`;
-    let nuevaCons: Consulta = {
-      ...datos,
-      id: tempId,
-      created_at: new Date().toISOString()
-    };
+    if (!user?.id) {
+      alert('Debes iniciar sesión para agendar turnos.');
+      return;
+    }
 
-    setConsultas(prev => {
-      const actualizados = [nuevaCons, ...prev];
-      if (user?.id) guardarCacheCompleto(user.id, { consultas: actualizados });
-      return actualizados;
+    const medicoIdSanitizado = (datos.medico_id && !datos.medico_id.startsWith('med-')) ? datos.medico_id : null;
+
+    const { error } = await supabase.from('consultas').insert({
+      miembro_id: datos.miembro_id,
+      medico_id: medicoIdSanitizado,
+      motivo: datos.motivo,
+      fecha_visita_anterior: datos.fecha_visita_anterior || null,
+      fecha_proxima_visita: datos.fecha_proxima_visita || null,
+      estado: datos.estado || 'programada',
+      observaciones: datos.observaciones || null
     });
 
-    try {
-      if (user?.id) {
-        const medicoIdSanitizado = (datos.medico_id && !datos.medico_id.startsWith('med-')) ? datos.medico_id : null;
-
-        const { data, error } = await supabase.from('consultas').insert({
-          miembro_id: datos.miembro_id,
-          medico_id: medicoIdSanitizado,
-          motivo: datos.motivo,
-          fecha_visita_anterior: datos.fecha_visita_anterior || null,
-          fecha_proxima_visita: datos.fecha_proxima_visita || null,
-          estado: datos.estado || 'programada',
-          observaciones: datos.observaciones || null
-        }).select().single();
-
-        if (data && !error) {
-          setConsultas(prev => {
-            const reemplazados = prev.map(c => c.id === tempId ? { ...data, medico_nombre: datos.medico_nombre } as Consulta : c);
-            if (user?.id) guardarCacheCompleto(user.id, { consultas: reemplazados });
-            return reemplazados;
-          });
-        }
-      }
-    } catch (e) {
-      console.error('Error insertando consulta:', e);
+    if (error) {
+      console.error('Error insertando consulta en Supabase:', error);
+      alert(`No se pudo agendar el turno en la nube: ${error.message}`);
+      return;
     }
+
+    await cargarDatosSupabase();
   };
 
+  // MUTACIÓN STRICT SUPABASE: Cambiar Estado Consulta
   const cambiarEstadoConsulta = async (id: string, estado: 'programada' | 'completada' | 'cancelada') => {
-    setConsultas(prev => {
-      const actualizados = prev.map(c => c.id === id ? { ...c, estado } : c);
-      if (user?.id) guardarCacheCompleto(user.id, { consultas: actualizados });
-      return actualizados;
-    });
+    if (!user?.id) return;
+    const { error } = await supabase.from('consultas').update({ estado }).eq('id', id);
 
-    try {
-      if (user?.id) {
-        await supabase.from('consultas').update({ estado }).eq('id', id);
-      }
-    } catch (e) {}
-  };
-
-  const eliminarConsulta = async (id: string) => {
-    setConsultas(prev => {
-      const actualizados = prev.filter(c => c.id !== id);
-      if (user?.id) guardarCacheCompleto(user.id, { consultas: actualizados });
-      return actualizados;
-    });
-
-    try {
-      if (user?.id) {
-        await supabase.from('consultas').delete().eq('id', id);
-      }
-    } catch (e) {}
-  };
-
-  // Estudios
-  const agregarEstudio = async (datos: Omit<Estudio, 'id' | 'created_at'>) => {
-    const tempId = `est-${Date.now()}`;
-    let nuevoEstudio: Estudio = {
-      ...datos,
-      id: tempId,
-      created_at: new Date().toISOString()
-    };
-
-    setEstudios(prev => {
-      const actualizados = [nuevoEstudio, ...prev];
-      if (user?.id) guardarCacheCompleto(user.id, { estudios: actualizados });
-      return actualizados;
-    });
-
-    try {
-      if (user?.id) {
-        const { data, error } = await supabase.from('estudios').insert({
-          miembro_id: datos.miembro_id,
-          titulo: datos.titulo,
-          tipo_estudio: datos.tipo_estudio,
-          fecha: datos.fecha || new Date().toISOString().split('T')[0],
-          archivo_url: datos.archivo_url || null,
-          archivo_nombre: datos.archivo_nombre || null,
-          observaciones: datos.observaciones || null
-        }).select().single();
-
-        if (data && !error) {
-          setEstudios(prev => {
-            const reemplazados = prev.map(e => e.id === tempId ? (data as Estudio) : e);
-            if (user?.id) guardarCacheCompleto(user.id, { estudios: reemplazados });
-            return reemplazados;
-          });
-        }
-      }
-    } catch (e) {
-      console.error('Error insertando estudio:', e);
+    if (error) {
+      console.error('Error actualizando turno:', error);
+      alert(`Error al actualizar el turno: ${error.message}`);
+      return;
     }
+
+    await cargarDatosSupabase();
   };
 
-  const eliminarEstudio = async (id: string) => {
-    setEstudios(prev => {
-      const actualizados = prev.filter(e => e.id !== id);
-      if (user?.id) guardarCacheCompleto(user.id, { estudios: actualizados });
-      return actualizados;
+  // MUTACIÓN STRICT SUPABASE: Eliminar Consulta
+  const eliminarConsulta = async (id: string) => {
+    if (!user?.id) return;
+    const { error } = await supabase.from('consultas').delete().eq('id', id);
+
+    if (error) {
+      console.error('Error eliminando turno:', error);
+      alert(`Error al eliminar turno: ${error.message}`);
+      return;
+    }
+
+    await cargarDatosSupabase();
+  };
+
+  // MUTACIÓN STRICT SUPABASE: Agregar Estudio
+  const agregarEstudio = async (datos: Omit<Estudio, 'id' | 'created_at'>) => {
+    if (!user?.id) {
+      alert('Debes iniciar sesión para guardar estudios.');
+      return;
+    }
+
+    const { error } = await supabase.from('estudios').insert({
+      miembro_id: datos.miembro_id,
+      titulo: datos.titulo,
+      tipo_estudio: datos.tipo_estudio,
+      fecha: datos.fecha || new Date().toISOString().split('T')[0],
+      archivo_url: datos.archivo_url || null,
+      archivo_nombre: datos.archivo_nombre || null,
+      observaciones: datos.observaciones || null
     });
 
-    try {
-      if (user?.id) {
-        await supabase.from('estudios').delete().eq('id', id);
-      }
-    } catch (e) {}
+    if (error) {
+      console.error('Error insertando estudio en Supabase:', error);
+      alert(`No se pudo guardar el estudio en la nube: ${error.message}`);
+      return;
+    }
+
+    await cargarDatosSupabase();
+  };
+
+  // MUTACIÓN STRICT SUPABASE: Eliminar Estudio
+  const eliminarEstudio = async (id: string) => {
+    if (!user?.id) return;
+    const { error } = await supabase.from('estudios').delete().eq('id', id);
+
+    if (error) {
+      console.error('Error eliminando estudio:', error);
+      alert(`Error al eliminar estudio: ${error.message}`);
+      return;
+    }
+
+    await cargarDatosSupabase();
   };
 
   // Compartir tutor por email
@@ -801,14 +672,27 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .single();
 
       if (perfilData) {
-        await supabase.from('miembro_tutores').insert({
+        const { error } = await supabase.from('miembro_tutores').insert({
           miembro_id: miembroId,
           user_id: perfilData.id,
           rol: rol
         });
+
+        if (error) {
+          alert(`No se pudo compartir el integrante: ${error.message}`);
+          return false;
+        }
+
+        await cargarDatosSupabase();
+        return true;
+      } else {
+        alert(`No se encontró ningún usuario registrado con el email: ${emailTutor}`);
+        return false;
       }
-    } catch (e) {}
-    return true;
+    } catch (e: any) {
+      alert(`Error al compartir tutor: ${e?.message || 'Error de red'}`);
+      return false;
+    }
   };
 
   // Obtener Ficha de Emergencia pública por token QR
